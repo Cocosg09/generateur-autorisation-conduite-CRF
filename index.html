@@ -1,0 +1,162 @@
+<!doctype html>
+<html lang="fr">
+<head>
+  <meta charset="utf-8">
+  <meta name="viewport" content="width=device-width, initial-scale=1">
+  <title>Autorisation de conduite – Croix-Rouge française</title>
+  <meta name="description" content="Générateur de la charte du conducteur et de l'autorisation de conduite des bénévoles de la Croix-Rouge française.">
+  <meta name="robots" content="noindex">
+  <link rel="icon" href="assets/img/favicon.svg" type="image/svg+xml">
+  <link rel="stylesheet" href="assets/css/style.css">
+</head>
+<body>
+  <header class="entete">
+    <img src="assets/img/logo-crf.png" alt="Croix-Rouge française" class="logo">
+    <div>
+      <h1>Autorisation de conduite</h1>
+      <p class="sous-titre" id="sous-titre">Charte du conducteur – demande d'autorisation</p>
+    </div>
+  </header>
+
+  <main>
+    <!-- Vue bénévole -->
+    <section id="vue-benevole" hidden>
+      <ol class="etapes">
+        <li>Remplissez vos informations</li>
+        <li>Lisez la charte et signez</li>
+        <li>Envoyez la demande au RTPA</li>
+      </ol>
+
+      <form id="form-benevole" novalidate>
+        <fieldset>
+          <legend>Vos informations</legend>
+          <div class="grille">
+            <label>Prénom<input name="prenom" required autocomplete="given-name"></label>
+            <label>Nom<input name="nom" required autocomplete="family-name"></label>
+          </div>
+          <label>Adresse e-mail <span class="aide">pour recevoir le document signé par le RTPA</span>
+            <input name="email" type="email" required autocomplete="email"></label>
+        </fieldset>
+
+        <fieldset>
+          <legend>Permis de conduire</legend>
+          <label>N° de permis<input name="permisNumero" required autocomplete="off"></label>
+          <div class="grille">
+            <label>Délivré le<input name="permisDate" type="date" required></label>
+            <label>Préfecture<input name="permisPrefecture" required placeholder="ex. Foix"></label>
+          </div>
+        </fieldset>
+
+        <fieldset>
+          <legend>Véhicules demandés</legend>
+          <div class="vehicules" id="vehicules-benevole"></div>
+          <p class="erreur" id="erreur-vehicules" hidden>Sélectionnez au moins un type de véhicule.</p>
+        </fieldset>
+
+        <fieldset>
+          <legend>Charte du conducteur</legend>
+          <details class="charte">
+            <summary>Lire les engagements du conducteur</summary>
+            <ul id="liste-engagements"></ul>
+          </details>
+          <label class="case"><input type="checkbox" name="engagement" required>
+            <span>Je m'engage sur l'honneur à respecter la charte du conducteur.</span></label>
+        </fieldset>
+
+        <fieldset>
+          <legend>Votre signature</legend>
+          <div class="signature" data-pad="conducteur">
+            <canvas aria-label="Zone de signature du conducteur"></canvas>
+            <span class="indication">Signez ici avec la souris ou le doigt</span>
+            <button type="button" class="lien" data-effacer>Effacer</button>
+          </div>
+          <p class="erreur" id="erreur-signature-conducteur" hidden>Merci de signer le document.</p>
+        </fieldset>
+
+        <div class="actions">
+          <button type="button" class="secondaire" id="btn-apercu-benevole">Aperçu du document</button>
+          <button type="submit" class="principal">Envoyer au RTPA pour signature</button>
+        </div>
+      </form>
+
+      <div id="resultat-benevole" class="carte" hidden>
+        <h2>Votre demande est prête</h2>
+        <p>Si votre messagerie ne s'est pas ouverte, copiez le lien ci-dessous et envoyez-le
+          <span id="dest-rtpa">au RTPA</span>.</p>
+        <div class="copie">
+          <input id="lien-signature" readonly>
+          <button type="button" class="secondaire" id="btn-copier">Copier</button>
+        </div>
+        <div class="actions">
+          <a class="bouton principal" id="btn-mail-rtpa">Ouvrir l'e-mail au RTPA</a>
+          <button type="button" class="secondaire" id="btn-telecharger-benevole">Télécharger mon exemplaire (PDF)</button>
+        </div>
+        <button type="button" class="lien" id="btn-modifier">← Modifier ma demande</button>
+      </div>
+    </section>
+
+    <!-- Vue RTPA -->
+    <section id="vue-rtpa" hidden>
+      <div class="carte">
+        <h2>Demande d'autorisation de conduite</h2>
+        <dl class="recap" id="recap"></dl>
+      </div>
+
+      <form id="form-rtpa" novalidate>
+        <fieldset>
+          <legend>Véhicules autorisés</legend>
+          <p class="aide">Vous pouvez décocher les véhicules que vous n'autorisez pas.</p>
+          <div class="vehicules" id="vehicules-rtpa"></div>
+          <p class="erreur" id="erreur-vehicules-rtpa" hidden>Sélectionnez au moins un type de véhicule.</p>
+        </fieldset>
+
+        <fieldset>
+          <legend>Signature du RTPA</legend>
+          <label>Vos nom et prénom
+            <input name="rtpaNom" required autocomplete="name"></label>
+          <p class="aide" id="identite-rtpa"></p>
+          <div class="signature" data-pad="rtpa">
+            <canvas aria-label="Zone de signature du RTPA"></canvas>
+            <span class="indication">Signez ici avec la souris ou le doigt</span>
+            <button type="button" class="lien" data-effacer>Effacer</button>
+          </div>
+          <p class="erreur" id="erreur-signature-rtpa" hidden>Merci de signer le document.</p>
+        </fieldset>
+
+        <div class="actions">
+          <button type="button" class="secondaire" id="btn-apercu-rtpa">Aperçu du document</button>
+          <button type="submit" class="principal">Signer et générer le PDF</button>
+        </div>
+      </form>
+
+      <div id="resultat-rtpa" class="carte" hidden>
+        <h2>Autorisation signée</h2>
+        <p>Le PDF signé a été téléchargé. Transmettez-le au bénévole
+          (<strong id="email-benevole"></strong>) en pièce jointe.</p>
+        <div class="actions">
+          <button type="button" class="principal" id="btn-envoyer-benevole">Envoyer au bénévole</button>
+          <button type="button" class="secondaire" id="btn-telecharger-rtpa">Télécharger à nouveau</button>
+        </div>
+      </div>
+    </section>
+
+    <section id="vue-erreur" class="carte" hidden>
+      <h2>Lien invalide</h2>
+      <p>Ce lien de signature est incomplet ou endommagé. Demandez au bénévole de vous le renvoyer.</p>
+      <a class="bouton secondaire" href="./">Faire une nouvelle demande</a>
+    </section>
+  </main>
+
+  <footer>
+    Croix-Rouge française – Délégation territoriale de l'Ariège.
+    Aucune donnée n'est stockée sur un serveur : le document est généré dans votre navigateur.
+  </footer>
+
+  <div id="toast" role="status" hidden></div>
+
+  <script src="config.js"></script>
+  <script src="assets/vendor/pdf-lib.min.js"></script>
+  <script src="assets/vendor/fontkit.umd.min.js"></script>
+  <script type="module" src="assets/js/app.js"></script>
+</body>
+</html>
