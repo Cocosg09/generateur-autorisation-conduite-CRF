@@ -1,0 +1,16 @@
+{
+  "name": "autorisation-conduite-serveur",
+  "private": true,
+  "type": "module",
+  "engines": {
+    "node": ">=22.13"
+  },
+  "scripts": {
+    "start": "node src/index.js",
+    "test": "node --test test/*.test.js"
+  },
+  "dependencies": {
+    "express": "5.3.0",
+    "nodemailer": "10.2.1"
+  }
+}

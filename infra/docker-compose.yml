@@ -1,30 +1,39 @@
-# Autorisation de conduite : serveur web du site statique (autorisation-conduite.croix-rouge-ariege.fr)
+# Générateur d'autorisation de conduite (autorisation-conduite.croix-rouge-ariege.fr)
 #
-# Installé dans /opt/autorisation-conduite sur le VPS (voir infra/README.md) :
-#   /opt/autorisation-conduite/docker-compose.yml   (ce fichier)
-#   /opt/autorisation-conduite/nginx.conf
-#   /opt/autorisation-conduite/www/                 (alimenté par le workflow de déploiement, rsync)
+# Sur le VPS : /opt/autorisation-conduite/depot (clone du dépôt), réglages dans infra/.env
+# (modèle : infra/.env.example). Lancé par /opt/autorisation-conduite/deployer.sh :
+#   docker compose -f infra/docker-compose.yml up -d --build --wait
 #
-# Le proxy HTTPS du VPS (gestion_dps_caddy) joint ce conteneur par le réseau partagé infra_interne.
+# Réseau partagé infra_interne : le proxy HTTPS du VPS (gestion_dps_caddy) joint ce conteneur,
+# et ce conteneur joint Gestion des DPS (gestion_dps_backend) de serveur à serveur.
 
 name: autorisation_conduite
 
 services:
   web:
-    image: nginx:1.27-alpine
+    build:
+      context: ..
+      args:
+        VERSION: ${VERSION:-dev}
+    image: autorisation_conduite:production
     container_name: autorisation_conduite_web
     restart: unless-stopped
+    env_file: .env
+    environment:
+      URL_PUBLIQUE: https://autorisation-conduite.croix-rouge-ariege.fr
+      TZ: Europe/Paris
+    volumes:
+      - donnees:/donnees
     read_only: true
     tmpfs:
-      - /var/cache/nginx
-      - /var/run
-    volumes:
-      - ./www:/usr/share/nginx/html:ro
-      - ./nginx.conf:/etc/nginx/conf.d/default.conf:ro
+      - /tmp
+    # Écoute sur le port 80 sans être root.
+    sysctls:
+      net.ipv4.ip_unprivileged_port_start: 0
     # Port local (127.0.0.1 seulement) pour les contrôles depuis le VPS. Jamais ouvert sur Internet.
     ports:
       - "127.0.0.1:8084:80"
-    mem_limit: 32m
+    mem_limit: 192m
     security_opt:
       - no-new-privileges:true
     logging:
@@ -32,13 +41,12 @@ services:
       options:
         max-size: "10m"
         max-file: "3"
-    healthcheck:
-      test: ["CMD-SHELL", "wget -q -O /dev/null http://127.0.0.1/healthz || exit 1"]
-      interval: 30s
-      timeout: 5s
-      retries: 3
     networks:
       - partage
+
+volumes:
+  donnees:
+    name: autorisation_conduite_donnees
 
 networks:
   partage:

@@ -1,0 +1,11 @@
+.git
+.github
+.claude
+graft
+tests
+infra
+server/node_modules
+server/test
+**/*.sqlite*
+**/.DS_Store
+README.md

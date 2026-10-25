@@ -1,109 +1,82 @@
 # Générateur d'autorisation de conduite – Croix-Rouge française (DT Ariège)
 
-Site statique qui permet aux bénévoles de générer leur **Charte du conducteur / Autorisation de conduite**
-(même document, même mise en page que le modèle papier) et de l'envoyer pour signature au
-**Référent Territorial du Parc Automobile (RTPA)**.
+Les bénévoles remplissent et signent en ligne leur **Charte du conducteur / Autorisation de conduite**
+(même document, même mise en page que le modèle papier). Le **Référent Territorial du Parc Automobile
+(RTPA)** la traite ensuite dans un **espace gestion**, auquel il se connecte avec son compte
+**Gestion des DPS**.
 
-🌐 https://autorisation-conduite.croix-rouge-ariege.fr
+🌐 https://autorisation-conduite.croix-rouge-ariege.fr · espace gestion : `/gestion`
 
 ## Fonctionnement
 
-1. **Le bénévole** ouvre le site, saisit ses informations (identité, e-mail, permis), choisit les
-   véhicules demandés, accepte la charte et signe à l'écran.
-2. En cliquant sur **« Envoyer au RTPA pour signature »**, sa messagerie s'ouvre avec un e-mail
-   pré-rempli contenant un **lien de signature**. Il peut aussi copier ce lien ou télécharger son exemplaire.
-3. **Le RTPA** ouvre le lien : il voit le récapitulatif, saisit son nom (mémorisé sur son appareil),
-   peut décocher des véhicules, consulte l'aperçu, signe puis télécharge le PDF final.
-4. Le bouton **« Envoyer au bénévole »** partage le PDF (mobile) ou ouvre un e-mail vers le bénévole
-   auquel joindre le PDF téléchargé.
+1. **Le bénévole** saisit son identité, son e-mail et son permis, choisit les véhicules (VL, VPSP
+   *« sous couvert d'autorisation préalable du RTPA »*, VLTT, VLTC, LOG, Remorque, Quad), accepte la
+   charte et signe à l'écran. Il reçoit une **référence** (`AC-2026-0001`) et peut télécharger son exemplaire.
+2. **Un e-mail automatique** part vers la boîte du RTPA (`RTPA_EMAIL`) avec la seule référence :
+   aucun lien, la messagerie de la Croix-Rouge les bloque. Le bénévole reçoit un accusé de réception.
+3. **Le RTPA** se connecte à l'espace gestion avec son compte Gestion des DPS, ouvre la demande, peut
+   décocher des véhicules, signe ou refuse (avec un motif).
+4. **À la signature**, le serveur génère le PDF et l'envoie en pièce jointe au bénévole, avec une copie
+   dans la boîte du RTPA. Le nom du RTPA inscrit sur le document est celui de son compte Gestion des DPS.
 
-Véhicules proposés : VL, VPSP (avec la mention *« sous couvert d'autorisation préalable du RTPA »*),
-VLTT, VLTC, LOG, Remorque, Quad.
+### Accès et données personnelles
 
-### Données personnelles
+- L'espace gestion n'est ouvert qu'aux comptes Gestion des DPS listés dans `GESTIONNAIRES`.
+- Connexion selon le contrat `CONTRAT_API_AUTORISATION_CONDUITE.md` du dépôt gestion-dps-ariege :
+  code à usage unique échangé de serveur à serveur, aucun mot de passe ne transite par ce site.
+- Les demandes (identité, permis, signatures, PDF) sont gardées `RETENTION_JOURS` jours (400 par défaut,
+  environ 13 mois), puis supprimées automatiquement. Chaque action est inscrite dans un journal en ajout seul.
 
-Aucun serveur ni base de données : le PDF est généré dans le navigateur (pdf-lib). Les données de la
-demande sont compressées dans la partie `#d=…` du lien, qui n'est **jamais envoyée au serveur** web.
-Elles ne transitent donc que par l'e-mail échangé entre le bénévole et le RTPA.
+## Architecture
 
-## Configuration
+| Dossier | Rôle |
+| --- | --- |
+| `index.html`, `gestion.html`, `assets/` | Interface (page bénévole, espace gestion) |
+| `assets/js/pdf.js` | Mise en page du PDF, utilisée par le navigateur **et** par le serveur |
+| `server/` | API Node 24 (Express, SQLite intégré à Node, nodemailer) |
+| `infra/` | Image et déploiement sur le VPS |
+| `tests/`, `server/test/` | Tests (génération du PDF, API) |
 
-Modifier [`config.js`](config.js) :
-
-```js
-rtpa: {
-  fonction: 'RTPA',
-  structure: "DT DE L'ARIEGE",
-  email: 'rtpa.dt09@croix-rouge.fr', // destinataire des demandes (vide = saisie par le bénévole)
-},
-annee: null,      // année du titre ; null = année en cours
-```
+Principales routes : `POST /api/demandes` (public, limité à 10 dépôts par heure et par adresse),
+`/api/auth/*` (connexion), `/api/gestion/*` (session du RTPA requise).
 
 ## Développement
 
 ```bash
-python3 -m http.server 8765
+cd server && npm install
 ```
-
-Puis ouvrir http://localhost:8765. Tests de génération du PDF :
 
 ```bash
-node --test tests/*.test.mjs
+node server/src/index.js
 ```
 
-| Fichier | Rôle |
-| --- | --- |
-| `assets/js/pdf.js` | Mise en page du PDF (positions mesurées sur le modèle d'origine) |
-| `assets/js/app.js` | Formulaires bénévole / RTPA |
-| `assets/js/signature.js` | Zone de signature tactile |
-| `assets/js/lien.js` | Encodage de la demande dans le lien |
-| `assets/fonts/` | Anton (titre) et Liberation Sans (métriques identiques à Arial) |
-| `assets/vendor/` | pdf-lib 1.17.1 et fontkit 1.1.1 |
+Le site répond sur http://localhost:8080. Sans `SMTP_HOST`, les e-mails s'affichent dans la console.
+Tests :
 
-## Déploiement (VPS de la DT)
-
-Le site est hébergé sur le VPS de la DT, derrière le proxy HTTPS commun (Caddy de Gestion des DPS) :
-
-```
-Internet ─▶ gestion_dps_caddy ─(réseau infra_interne)─▶ autorisation_conduite_web (nginx)
-                                                         └─ /opt/autorisation-conduite/www
+```bash
+node --test tests/*.test.mjs && (cd server && npm test)
 ```
 
-Le workflow [`.github/workflows/deploy.yml`](.github/workflows/deploy.yml) lance les tests puis, à chaque
-push sur `main`, envoie le site par rsync dans `/opt/autorisation-conduite/www`. La clé SSH utilisée ne
-peut **que** écrire dans ce dossier (`rrsync -wo`). nginx sert les fichiers à chaud, aucun redémarrage
-n'est nécessaire.
+## Déploiement
 
-Fichiers d'infrastructure : [`infra/docker-compose.yml`](infra/docker-compose.yml),
-[`infra/nginx.conf`](infra/nginx.conf) (en-têtes de sécurité, CSP, cache).
+À chaque push sur `main`, le workflow [`deploy.yml`](.github/workflows/deploy.yml) lance les tests,
+construit l'image, puis demande au VPS de déployer le commit testé.
 
-### Mise en service (une fois)
+Sur le VPS :
 
-1. Depuis un poste ayant l'accès SSH au VPS (`gestion-dps-vps`) et `gh` connecté :
+- `/opt/autorisation-conduite/depot` : clone du dépôt ; `infra/.env` : réglages (modèle
+  [`infra/.env.example`](infra/.env.example)).
+- `/opt/autorisation-conduite/deployer.sh` : copie de [`infra/deployer.sh`](infra/deployer.sh), seule
+  commande permise à la clé SSH de déploiement (`command=…,restrict` dans `authorized_keys`).
+- Conteneur `autorisation_conduite_web` sur le réseau `infra_interne`, derrière le Caddy de Gestion des
+  DPS ; base SQLite dans le volume `autorisation_conduite_donnees`.
+- Côté Gestion des DPS (`/opt/gestion-dps/backend/.env`) : `INTEGRATION_AUTORISATION_CONDUITE_TOKEN`
+  (même valeur que `GESTION_DPS_TOKEN` ici) et
+  `AUTORISATION_CONDUITE_RETOURS=https://autorisation-conduite.croix-rouge-ariege.fr/api/auth/retour`.
 
-   ```bash
-   infra/installer-vps.sh
-   ```
-
-   Il crée le dossier et le conteneur, génère la clé de déploiement restreinte, remplit les secrets
-   GitHub (`VPS_HOST`, `VPS_PORT`, `VPS_USER`, `VPS_SSH_KEY`, `VPS_KNOWN_HOSTS`) et lance un déploiement.
-
-2. Ajouter le site au Caddyfile de Gestion des DPS (`infra/Caddyfile` du dépôt GESTION_DPS) :
-
-   ```
-   autorisation-conduite.croix-rouge-ariege.fr {
-   	encode gzip
-   	reverse_proxy autorisation_conduite_web:80
-   }
-   ```
-
-3. Chez OVH (zone `croix-rouge-ariege.fr`), créer l'enregistrement **A** `autorisation-conduite` vers
-   l'IP du VPS (même cible que `logistique.croix-rouge-ariege.fr`). Caddy obtient ensuite le
-   certificat HTTPS tout seul.
-
-Une modification de `infra/nginx.conf` ou `infra/docker-compose.yml` se réapplique en relançant
-`infra/installer-vps.sh`.
+Secrets GitHub : `VPS_HOST`, `VPS_PORT`, `VPS_USER`, `VPS_SSH_KEY`, `VPS_KNOWN_HOSTS`.
 
 ## Licences
 
-Polices : Anton (SIL OFL 1.1), Liberation Sans (SIL OFL 1.1). Bibliothèques : pdf-lib et fontkit (MIT).
+Polices : Anton (SIL OFL 1.1), Liberation Sans (SIL OFL 1.1). Bibliothèques : pdf-lib et fontkit (MIT),
+Express et nodemailer (MIT).

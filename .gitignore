@@ -4,3 +4,7 @@ _site/
 graft/
 .claude/settings.local.json
 .ignore
+server/node_modules/
+infra/.env
+*.sqlite
+*.sqlite-*

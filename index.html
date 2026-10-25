@@ -20,7 +20,7 @@
 
   <main>
     <!-- Vue bénévole -->
-    <section id="vue-benevole" hidden>
+    <section id="vue-benevole">
       <ol class="etapes">
         <li>Remplissez vos informations</li>
         <li>Lisez la charte et signez</li>
@@ -75,86 +75,33 @@
 
         <div class="actions">
           <button type="button" class="secondaire" id="btn-apercu-benevole">Aperçu du document</button>
-          <button type="submit" class="principal">Envoyer au RTPA pour signature</button>
+          <button type="submit" class="principal">Envoyer la demande au RTPA</button>
         </div>
       </form>
 
       <div id="resultat-benevole" class="carte" hidden>
-        <h2>Votre demande est prête</h2>
-        <p>Si votre messagerie ne s'est pas ouverte, copiez le lien ci-dessous et envoyez-le
-          <span id="dest-rtpa">au RTPA</span>.</p>
-        <div class="copie">
-          <input id="lien-signature" readonly>
-          <button type="button" class="secondaire" id="btn-copier">Copier</button>
-        </div>
+        <h2>Demande envoyée</h2>
+        <p>Votre demande a été transmise au référent territorial du parc automobile (RTPA).</p>
+        <p class="reference">Référence : <strong id="reference"></strong></p>
+        <p>Un e-mail de confirmation a été envoyé à <strong id="email-confirmation"></strong>.
+          Vous recevrez le document signé par e-mail dès qu'il aura été traité.</p>
         <div class="actions">
-          <a class="bouton principal" id="btn-mail-rtpa">Ouvrir l'e-mail au RTPA</a>
           <button type="button" class="secondaire" id="btn-telecharger-benevole">Télécharger mon exemplaire (PDF)</button>
-        </div>
-        <button type="button" class="lien" id="btn-modifier">← Modifier ma demande</button>
-      </div>
-    </section>
-
-    <!-- Vue RTPA -->
-    <section id="vue-rtpa" hidden>
-      <div class="carte">
-        <h2>Demande d'autorisation de conduite</h2>
-        <dl class="recap" id="recap"></dl>
-      </div>
-
-      <form id="form-rtpa" novalidate>
-        <fieldset>
-          <legend>Véhicules autorisés</legend>
-          <p class="aide">Vous pouvez décocher les véhicules que vous n'autorisez pas.</p>
-          <div class="vehicules" id="vehicules-rtpa"></div>
-          <p class="erreur" id="erreur-vehicules-rtpa" hidden>Sélectionnez au moins un type de véhicule.</p>
-        </fieldset>
-
-        <fieldset>
-          <legend>Signature du RTPA</legend>
-          <label>Vos nom et prénom
-            <input name="rtpaNom" required autocomplete="name"></label>
-          <p class="aide" id="identite-rtpa"></p>
-          <div class="signature" data-pad="rtpa">
-            <canvas aria-label="Zone de signature du RTPA"></canvas>
-            <span class="indication">Signez ici avec la souris ou le doigt</span>
-            <button type="button" class="lien" data-effacer>Effacer</button>
-          </div>
-          <p class="erreur" id="erreur-signature-rtpa" hidden>Merci de signer le document.</p>
-        </fieldset>
-
-        <div class="actions">
-          <button type="button" class="secondaire" id="btn-apercu-rtpa">Aperçu du document</button>
-          <button type="submit" class="principal">Signer et générer le PDF</button>
-        </div>
-      </form>
-
-      <div id="resultat-rtpa" class="carte" hidden>
-        <h2>Autorisation signée</h2>
-        <p>Le PDF signé a été téléchargé. Transmettez-le au bénévole
-          (<strong id="email-benevole"></strong>) en pièce jointe.</p>
-        <div class="actions">
-          <button type="button" class="principal" id="btn-envoyer-benevole">Envoyer au bénévole</button>
-          <button type="button" class="secondaire" id="btn-telecharger-rtpa">Télécharger à nouveau</button>
+          <button type="button" class="lien" id="btn-nouvelle">Faire une autre demande</button>
         </div>
       </div>
     </section>
 
-    <section id="vue-erreur" class="carte" hidden>
-      <h2>Lien invalide</h2>
-      <p>Ce lien de signature est incomplet ou endommagé. Demandez au bénévole de vous le renvoyer.</p>
-      <a class="bouton secondaire" href="./">Faire une nouvelle demande</a>
-    </section>
   </main>
 
   <footer>
     Croix-Rouge française – Délégation territoriale de l'Ariège.
-    Aucune donnée n'est stockée sur un serveur : le document est généré dans votre navigateur.
+    Vos informations sont transmises au seul RTPA pour établir votre autorisation de conduite,
+    puis supprimées au bout de 13 mois.
   </footer>
 
   <div id="toast" role="status" hidden></div>
 
-  <script src="config.js"></script>
   <script src="assets/vendor/pdf-lib.min.js"></script>
   <script src="assets/vendor/fontkit.umd.min.js"></script>
   <script type="module" src="assets/js/app.js"></script>

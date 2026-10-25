@@ -1,0 +1,112 @@
+<!doctype html>
+<html lang="fr">
+<head>
+  <meta charset="utf-8">
+  <meta name="viewport" content="width=device-width, initial-scale=1">
+  <title>Gestion des autorisations – Croix-Rouge française</title>
+  <meta name="robots" content="noindex">
+  <link rel="icon" href="assets/img/favicon.svg" type="image/svg+xml">
+  <link rel="stylesheet" href="assets/css/style.css">
+</head>
+<body>
+  <header class="entete">
+    <img src="assets/img/logo-crf.png" alt="Croix-Rouge française" class="logo">
+    <div class="titre-entete">
+      <h1>Autorisations de conduite</h1>
+      <p class="sous-titre">Espace gestion du RTPA</p>
+    </div>
+    <div class="compte" id="compte" hidden>
+      <span id="nom-compte"></span>
+      <button type="button" class="lien" id="btn-deconnexion">Se déconnecter</button>
+    </div>
+  </header>
+
+  <main>
+    <p id="chargement" class="aide">Chargement…</p>
+
+    <section id="vue-connexion" class="carte" hidden>
+      <h2>Espace réservé au RTPA</h2>
+      <p>Connectez-vous avec votre compte Gestion des DPS pour traiter les demandes d'autorisation de conduite.</p>
+      <p class="erreur" id="erreur-connexion" hidden></p>
+      <a class="bouton principal" href="/api/auth/connexion" id="btn-connexion">Se connecter avec Gestion des DPS</a>
+    </section>
+
+    <section id="vue-liste" hidden>
+      <div class="barre-liste">
+        <div class="onglets" role="tablist" aria-label="Filtrer par statut">
+          <button type="button" role="tab" data-statut="en_attente" aria-selected="true">En attente <span class="compteur" id="compteur-attente"></span></button>
+          <button type="button" role="tab" data-statut="signee" aria-selected="false">Signées</button>
+          <button type="button" role="tab" data-statut="refusee" aria-selected="false">Refusées</button>
+          <button type="button" role="tab" data-statut="" aria-selected="false">Toutes</button>
+        </div>
+        <label class="recherche">Rechercher
+          <input type="search" id="recherche" placeholder="Référence ou nom" autocomplete="off"></label>
+      </div>
+      <ul class="liste-demandes" id="liste-demandes"></ul>
+      <p class="aide vide" id="liste-vide" hidden>Aucune demande.</p>
+    </section>
+
+    <section id="vue-detail" hidden>
+      <button type="button" class="lien" id="btn-retour">← Toutes les demandes</button>
+      <div class="carte">
+        <div class="titre-detail">
+          <h2 id="titre-detail"></h2>
+          <span class="badge" id="badge-statut"></span>
+        </div>
+        <dl class="recap" id="recap"></dl>
+      </div>
+
+      <form id="form-signature" novalidate hidden>
+        <fieldset>
+          <legend>Véhicules autorisés</legend>
+          <p class="aide">Vous pouvez décocher les véhicules que vous n'autorisez pas.</p>
+          <div class="vehicules" id="vehicules-rtpa"></div>
+          <p class="erreur" id="erreur-vehicules-rtpa" hidden>Sélectionnez au moins un type de véhicule.</p>
+        </fieldset>
+
+        <fieldset>
+          <legend>Votre signature</legend>
+          <p class="aide" id="identite-rtpa"></p>
+          <div class="signature" data-pad="rtpa">
+            <canvas aria-label="Zone de signature du RTPA"></canvas>
+            <span class="indication">Signez ici avec la souris ou le doigt</span>
+            <button type="button" class="lien" data-effacer>Effacer</button>
+          </div>
+          <p class="erreur" id="erreur-signature-rtpa" hidden>Merci de signer le document.</p>
+        </fieldset>
+
+        <div class="actions">
+          <button type="button" class="secondaire" id="btn-apercu">Aperçu du document</button>
+          <button type="submit" class="principal">Signer et envoyer au bénévole</button>
+          <button type="button" class="lien danger" id="btn-ouvrir-refus">Refuser la demande</button>
+        </div>
+      </form>
+
+      <form id="form-refus" class="carte" novalidate hidden>
+        <h2>Refuser la demande</h2>
+        <label>Motif, transmis au bénévole par e-mail
+          <textarea name="motif" rows="3" maxlength="500" required></textarea></label>
+        <div class="actions">
+          <button type="submit" class="principal">Confirmer le refus</button>
+          <button type="button" class="secondaire" id="btn-annuler-refus">Annuler</button>
+        </div>
+      </form>
+
+      <div id="bloc-traite" class="carte" hidden>
+        <p id="texte-traite"></p>
+        <div class="actions">
+          <a class="bouton secondaire" id="btn-pdf" hidden>Télécharger le PDF signé</a>
+        </div>
+      </div>
+    </section>
+  </main>
+
+  <footer>Croix-Rouge française – Délégation territoriale de l'Ariège.</footer>
+
+  <div id="toast" role="status" hidden></div>
+
+  <script src="assets/vendor/pdf-lib.min.js"></script>
+  <script src="assets/vendor/fontkit.umd.min.js"></script>
+  <script type="module" src="assets/js/gestion.js"></script>
+</body>
+</html>
