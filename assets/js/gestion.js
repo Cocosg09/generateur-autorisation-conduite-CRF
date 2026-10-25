@@ -13,7 +13,7 @@ const ERREURS_CONNEXION = {
   non_autorise: "Votre compte Gestion des DPS n'a pas accès à cet espace. Demandez l'accès à l'administrateur.",
 };
 
-const vues = ['#chargement', '#vue-connexion', '#vue-liste', '#vue-detail'];
+const vues = ['#chargement', '#vue-connexion', '#vue-liste', '#vue-detail', '#vue-parametres'];
 const afficher = (vue) => { for (const v of vues) $(v).hidden = v !== vue; };
 const libellesVehicules = (codes) =>
   VEHICULES.filter((v) => codes.includes(v.code)).map((v) => v.code).join(', ');
@@ -47,10 +47,111 @@ async function demarrer() {
 }
 
 async function router() {
-  const reference = decodeURIComponent(location.hash.slice(2));
-  if (reference) await ouvrirDemande(reference);
+  const cible = decodeURIComponent(location.hash.slice(2));
+  if (cible === 'parametres') await afficherParametres();
+  else if (cible) await ouvrirDemande(cible);
   else await afficherListe();
 }
+
+// ---------- Paramètres ----------
+
+const element = (balise, proprietes = {}) => Object.assign(document.createElement(balise), proprietes);
+
+async function afficherParametres(etat) {
+  afficher('#vue-parametres');
+  try {
+    etat ??= await api('/api/gestion/parametres');
+  } catch (e) {
+    return gererErreur(e);
+  }
+
+  const liste = $('#liste-gestionnaires');
+  liste.innerHTML = '';
+  for (const g of etat.gestionnaires) {
+    const li = element('li');
+    const infos = element('span');
+    infos.append(
+      element('span', { className: 'email', textContent: g.email }),
+      element('span', {
+        className: 'aide',
+        textContent: g.configuration
+          ? ' · configuration du serveur (permanent)'
+          : g.ajoutePar === 'configuration'
+            ? ' · ancienne configuration du serveur'
+            : ` · ajouté le ${dateHeure(g.ajouteLe)} par ${g.ajoutePar}`,
+      }),
+    );
+    li.append(infos);
+    if (g.email === compte.email) {
+      li.append(element('span', { className: 'aide', textContent: 'vous' }));
+    } else if (!g.configuration) {
+      const bouton = element('button', { type: 'button', className: 'lien danger', textContent: 'Retirer' });
+      bouton.addEventListener('click', () => modifierParametres(
+        `Retirer l'accès de ${g.email} ?`,
+        () => api(`/api/gestion/gestionnaires/${encodeURIComponent(g.email)}`, { methode: 'DELETE' }),
+        `Accès de ${g.email} retiré.`,
+      ));
+      li.append(bouton);
+    }
+    liste.append(li);
+  }
+
+  const refusees = $('#liste-refusees');
+  refusees.innerHTML = '';
+  $('#bloc-refusees').hidden = etat.connexionsRefusees.length === 0;
+  for (const r of etat.connexionsRefusees) {
+    const li = element('li');
+    const infos = element('span');
+    infos.append(
+      element('span', { className: 'email', textContent: r.email }),
+      element('span', {
+        className: 'aide',
+        textContent: ` · ${r.tentatives} tentative${r.tentatives > 1 ? 's' : ''}, la dernière le ${dateHeure(r.derniere)}`,
+      }),
+    );
+    const bouton = element('button', { type: 'button', className: 'secondaire', textContent: 'Autoriser' });
+    bouton.addEventListener('click', () => modifierParametres(
+      `Donner accès à l'espace gestion à ${r.email} ?`,
+      () => api('/api/gestion/gestionnaires', { methode: 'POST', corps: { email: r.email } }),
+      `${r.email} peut maintenant se connecter.`,
+    ));
+    li.append(infos, bouton);
+    refusees.append(li);
+  }
+
+  $('#form-email-rtpa').elements.email.value = etat.emailRtpa;
+}
+
+async function modifierParametres(question, action, message) {
+  if (question && !window.confirm(question)) return;
+  try {
+    const etat = await action();
+    notifier(message);
+    await afficherParametres(etat);
+  } catch (e) {
+    gererErreur(e);
+  }
+}
+
+$('#form-gestionnaire').addEventListener('submit', async (ev) => {
+  ev.preventDefault();
+  const form = ev.target;
+  if (!form.checkValidity()) return form.classList.add('verifie');
+  const email = form.elements.email.value.trim();
+  await modifierParametres(null, () => api('/api/gestion/gestionnaires', { methode: 'POST', corps: { email } }),
+    `${email} peut maintenant se connecter.`);
+  form.reset();
+  form.classList.remove('verifie');
+});
+
+$('#form-email-rtpa').addEventListener('submit', async (ev) => {
+  ev.preventDefault();
+  const form = ev.target;
+  if (!form.checkValidity()) return form.classList.add('verifie');
+  const email = form.elements.email.value.trim();
+  await modifierParametres(null, () => api('/api/gestion/parametres/email-rtpa', { methode: 'PUT', corps: { email } }),
+    `Les avis de nouvelles demandes iront à ${email}.`);
+});
 
 // ---------- Liste ----------
 
@@ -170,7 +271,7 @@ const documentEnCours = () => ({
 });
 
 $('#btn-apercu').addEventListener('click', () => apercu(documentEnCours));
-$('#btn-retour').addEventListener('click', () => { location.hash = ''; });
+$('#btn-retour').addEventListener('click', () => { location.hash = '#/'; });
 
 $('#form-signature').addEventListener('submit', async (ev) => {
   ev.preventDefault();

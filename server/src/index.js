@@ -18,7 +18,6 @@ const { app, demandes, auth } = creerApp({
 if (!config.connexionConfiguree) {
   console.warn('Connexion Gestion des DPS non configurée : espace gestion inaccessible');
 }
-if (config.gestionnaires.length === 0) console.warn('GESTIONNAIRES vide : personne ne peut se connecter');
 
 // Durée de conservation des demandes (RETENTION_JOURS) et sessions expirées : ménage quotidien.
 const menage = () => {

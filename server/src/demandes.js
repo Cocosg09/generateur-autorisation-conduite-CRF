@@ -88,7 +88,7 @@ const nomFichier = (d) => {
   return `Autorisation_conduite_${d.reference}_${propre(d.nom.toUpperCase())}_${propre(d.prenom)}.pdf`;
 };
 
-export function creerServiceDemandes({ db, config, messagerie, genererPdf, maintenant = () => new Date() }) {
+export function creerServiceDemandes({ db, config, parametres, messagerie, genererPdf, maintenant = () => new Date() }) {
   const donneesPdf = (d, { vehicules: v, rtpa, signatureRtpa } = {}) => ({
     ...d,
     annee: d.annee,
@@ -116,7 +116,7 @@ export function creerServiceDemandes({ db, config, messagerie, genererPdf, maint
       // Ni lien ni donnée du permis : la messagerie de la Croix-Rouge bloque les liens.
       await Promise.allSettled([
         messagerie.envoyer({
-          a: config.structure.email,
+          a: parametres.emailRtpa(),
           sujet: `Nouvelle demande d'autorisation de conduite ${reference}`,
           texte: [
             'Bonjour,',
@@ -208,7 +208,7 @@ export function creerServiceDemandes({ db, config, messagerie, genererPdf, maint
         }),
         // Copie pour l'archivage de la boîte du RTPA.
         messagerie.envoyer({
-          a: config.structure.email,
+          a: parametres.emailRtpa(),
           sujet: `Autorisation de conduite signée ${reference}`,
           texte: `Autorisation ${reference} de ${d.prenom} ${d.nom}, signée par ${rtpa.nom}.\n\nCopie automatique.`,
           pieceJointe,

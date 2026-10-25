@@ -17,7 +17,10 @@
     </div>
     <div class="compte" id="compte" hidden>
       <span id="nom-compte"></span>
-      <button type="button" class="lien" id="btn-deconnexion">Se déconnecter</button>
+      <span class="liens-compte">
+        <a class="lien" href="#/parametres" id="lien-parametres">Paramètres</a>
+        <button type="button" class="lien" id="btn-deconnexion">Se déconnecter</button>
+      </span>
     </div>
   </header>
 
@@ -97,6 +100,37 @@
         <div class="actions">
           <a class="bouton secondaire" id="btn-pdf" hidden>Télécharger le PDF signé</a>
         </div>
+      </div>
+    </section>
+    <section id="vue-parametres" hidden>
+      <a class="lien" href="#/">← Toutes les demandes</a>
+
+      <div class="carte">
+        <h2>Administrateurs</h2>
+        <p class="aide">Comptes Gestion des DPS qui ont accès à cet espace. Indiquez l'adresse e-mail
+          exacte du compte Gestion des DPS de la personne.</p>
+        <ul class="liste-reglages" id="liste-gestionnaires"></ul>
+        <form id="form-gestionnaire" class="ligne-ajout" novalidate>
+          <label>Ajouter un administrateur
+            <input name="email" type="email" required autocomplete="off" placeholder="prenom.nom@croix-rouge.fr"></label>
+          <button type="submit" class="principal">Ajouter</button>
+        </form>
+      </div>
+
+      <div class="carte" id="bloc-refusees" hidden>
+        <h2>Connexions refusées</h2>
+        <p class="aide">Comptes qui ont essayé de se connecter sans y être autorisés (30 derniers jours).</p>
+        <ul class="liste-reglages" id="liste-refusees"></ul>
+      </div>
+
+      <div class="carte">
+        <h2>Boîte de réception des demandes</h2>
+        <p class="aide">Adresse qui reçoit l'avis de chaque nouvelle demande et une copie des autorisations signées.</p>
+        <form id="form-email-rtpa" class="ligne-ajout" novalidate>
+          <label>Adresse e-mail
+            <input name="email" type="email" required autocomplete="off"></label>
+          <button type="submit" class="principal">Enregistrer</button>
+        </form>
       </div>
     </section>
   </main>

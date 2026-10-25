@@ -27,6 +27,18 @@ const SCHEMA = `
     expire_le  INTEGER NOT NULL
   );
 
+  -- Comptes Gestion des DPS autorisés dans l'espace gestion, modifiables depuis le site.
+  CREATE TABLE IF NOT EXISTS gestionnaires (
+    email      TEXT PRIMARY KEY,
+    ajoute_le  TEXT NOT NULL,
+    ajoute_par TEXT NOT NULL
+  );
+
+  CREATE TABLE IF NOT EXISTS parametres (
+    cle    TEXT PRIMARY KEY,
+    valeur TEXT NOT NULL
+  );
+
   CREATE TABLE IF NOT EXISTS journal (
     id        INTEGER PRIMARY KEY AUTOINCREMENT,
     date      TEXT NOT NULL,

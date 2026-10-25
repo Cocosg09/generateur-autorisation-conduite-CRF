@@ -166,3 +166,69 @@ test('journal en ajout seul', () => {
   db.prepare("INSERT INTO journal (date, acteur, action) VALUES ('d', 'a', 'x')").run();
   assert.throws(() => db.prepare("UPDATE journal SET action = 'y'").run(), /non modifiable/);
 });
+
+const envoyer = (methode, chemin, corps, cookie) =>
+  fetch(base + chemin, { method: methode, headers: { ...ORIGINE, Cookie: cookie }, body: corps && JSON.stringify(corps) });
+
+test('paramètres : administrateurs gérés depuis le site', async () => {
+  // Tentative refusée, visible ensuite dans les paramètres.
+  await seConnecter('autre-compte');
+  const { cookie } = await seConnecter();
+  let etat = await (await fetch(`${base}/api/gestion/parametres`, { headers: { Cookie: cookie } })).json();
+  assert.deepEqual(etat.gestionnaires.map((g) => g.email), ['rtpa@example.org']);
+  assert.equal(etat.gestionnaires[0].ajoutePar, 'configuration');
+  assert.deepEqual(etat.connexionsRefusees.map((r) => r.email), ['intrus@example.org']);
+  assert.equal(etat.emailRtpa, 'boite-rtpa@example.org');
+
+  // Ajout : le compte refusé peut désormais se connecter, et disparaît des refus.
+  etat = await (await envoyer('POST', '/api/gestion/gestionnaires', { email: ' Intrus@Example.org ' }, cookie)).json();
+  assert.deepEqual(etat.gestionnaires.map((g) => g.email), ['intrus@example.org', 'rtpa@example.org']);
+  assert.deepEqual(etat.connexionsRefusees, []);
+  const intrus = await seConnecter('autre-compte');
+  assert.equal(intrus.retour.headers.get('location'), '/gestion.html');
+
+  // Garde-fous : ni soi-même, ni un compte de la configuration (même par un autre), adresse valide.
+  assert.equal((await envoyer('DELETE', '/api/gestion/gestionnaires/rtpa%40example.org', null, cookie)).status, 400);
+  assert.equal((await envoyer('DELETE', '/api/gestion/gestionnaires/rtpa%40example.org', null, intrus.cookie)).status, 400);
+  assert.equal(etat.gestionnaires.find((g) => g.email === 'rtpa@example.org').configuration, true);
+  assert.equal((await envoyer('POST', '/api/gestion/gestionnaires', { email: 'pas une adresse' }, cookie)).status, 400);
+
+  // Retrait : la session de l'autre administrateur est aussitôt fermée.
+  etat = await (await envoyer('DELETE', '/api/gestion/gestionnaires/intrus%40example.org', null, cookie)).json();
+  assert.deepEqual(etat.gestionnaires.map((g) => g.email), ['rtpa@example.org']);
+  assert.equal((await fetch(`${base}/api/gestion/demandes`, { headers: { Cookie: intrus.cookie } })).status, 401);
+});
+
+test('paramètres : boîte du RTPA modifiable, utilisée pour les avis', async () => {
+  const { cookie } = await seConnecter();
+  const r = await envoyer('PUT', '/api/gestion/parametres/email-rtpa', { email: 'nouvelle-boite@example.org' }, cookie);
+  assert.equal((await r.json()).emailRtpa, 'nouvelle-boite@example.org');
+  envoyes = [];
+  await poster('/api/demandes', DEMANDE);
+  assert.ok(envoyes.some((m) => m.a === 'nouvelle-boite@example.org'));
+  assert.equal((await envoyer('PUT', '/api/gestion/parametres/email-rtpa', { email: 'x' }, cookie)).status, 400);
+});
+
+test('paramètres : fermés sans session ou depuis une autre origine', async () => {
+  assert.equal((await fetch(`${base}/api/gestion/parametres`)).status, 401);
+  const { cookie } = await seConnecter();
+  const r = await fetch(`${base}/api/gestion/gestionnaires`, {
+    method: 'POST', headers: { Origin: 'https://malveillant.example', 'Content-Type': 'application/json', Cookie: cookie },
+    body: JSON.stringify({ email: 'pirate@example.org' }),
+  });
+  assert.equal(r.status, 403);
+});
+
+test('GESTIONNAIRES redonne l’accès à chaque démarrage (secours)', async () => {
+  const { creerParametres } = await import('../src/parametres.js');
+  const base2 = ouvrirBase(':memory:');
+  const conf = (liste) => lireConfig({ GESTIONNAIRES: liste });
+  creerParametres({ db: base2, config: conf('a@example.org') }).initialiser();
+  // Redémarrage avec une autre liste : l'ancien compte reste, le nouveau est ajouté.
+  const p = creerParametres({ db: base2, config: conf('b@example.org') });
+  p.initialiser();
+  assert.deepEqual(p.gestionnaires().map((g) => [g.email, g.configuration]), [['a@example.org', false], ['b@example.org', true]]);
+  // L'ancien compte de configuration se retire désormais depuis le site.
+  p.retirerGestionnaire('a@example.org', { email: 'b@example.org' });
+  assert.deepEqual(p.gestionnaires().map((g) => g.email), ['b@example.org']);
+});

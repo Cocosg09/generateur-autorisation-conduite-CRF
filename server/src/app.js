@@ -3,6 +3,7 @@ import express from 'express';
 import { join } from 'node:path';
 import { creerAuth } from './auth.js';
 import { creerServiceDemandes, DemandeDejaTraitee, DemandeIntrouvable, ErreurValidation } from './demandes.js';
+import { creerParametres, ErreurParametre } from './parametres.js';
 
 const CSP = [
   "default-src 'self'",
@@ -36,8 +37,10 @@ function limiteur(max, fenetreMs) {
 }
 
 export function creerApp({ db, config, messagerie, genererPdf, fetch }) {
-  const demandes = creerServiceDemandes({ db, config, messagerie, genererPdf });
-  const auth = creerAuth({ db, config, fetch });
+  const parametres = creerParametres({ db, config });
+  parametres.initialiser();
+  const demandes = creerServiceDemandes({ db, config, parametres, messagerie, genererPdf });
+  const auth = creerAuth({ db, config, parametres, fetch });
   const app = express();
 
   app.disable('x-powered-by');
@@ -128,6 +131,25 @@ export function creerApp({ db, config, messagerie, genererPdf, fetch }) {
       suivant(e);
     }
   });
+  // Paramètres : administrateurs et boîte du RTPA.
+  const etatParametres = () => ({
+    gestionnaires: parametres.gestionnaires(),
+    emailRtpa: parametres.emailRtpa(),
+    connexionsRefusees: parametres.connexionsRefusees(),
+  });
+  gestion.get('/parametres', (req, res) => res.json(etatParametres()));
+  gestion.post('/gestionnaires', (req, res) => {
+    parametres.ajouterGestionnaire(req.body?.email, req.compte);
+    res.json(etatParametres());
+  });
+  gestion.delete('/gestionnaires/:email', (req, res) => {
+    parametres.retirerGestionnaire(req.params.email, req.compte);
+    res.json(etatParametres());
+  });
+  gestion.put('/parametres/email-rtpa', (req, res) => {
+    parametres.changerEmailRtpa(req.body?.email, req.compte);
+    res.json(etatParametres());
+  });
   app.use('/api/gestion', gestion);
   app.use('/api', (req, res) => res.status(404).json({ erreur: 'Introuvable' }));
 
@@ -151,7 +173,9 @@ export function creerApp({ db, config, messagerie, genererPdf, fetch }) {
 
   // --- Erreurs ---
   app.use((err, req, res, suivant) => {
-    if (err instanceof ErreurValidation) return res.status(400).json({ erreur: err.message });
+    if (err instanceof ErreurValidation || err instanceof ErreurParametre) {
+      return res.status(400).json({ erreur: err.message });
+    }
     if (err instanceof DemandeIntrouvable) return res.status(404).json({ erreur: 'Demande introuvable' });
     if (err instanceof DemandeDejaTraitee) return res.status(409).json({ erreur: 'Demande déjà traitée' });
     if (err.type === 'entity.parse.failed' || err.type === 'entity.too.large') {

@@ -2,7 +2,7 @@
 // (CONTRAT_API_AUTORISATION_CONDUITE.md du dépôt gestion-dps-ariege) :
 //   1. /api/auth/connexion  → page /connexion-autorisation-conduite de Gestion des DPS (état en cookie) ;
 //   2. /api/auth/retour     ← code à usage unique, échangé de serveur à serveur contre l'identité ;
-//   3. seuls les comptes listés dans GESTIONNAIRES ouvrent une session.
+//   3. seuls les administrateurs (table gestionnaires, page Paramètres) ouvrent une session.
 import { createHash, randomBytes, timingSafeEqual } from 'node:crypto';
 import { journaliser } from './base.js';
 
@@ -28,7 +28,7 @@ const egal = (a, b) => {
   return ba.length === bb.length && ba.length > 0 && timingSafeEqual(ba, bb);
 };
 
-export function creerAuth({ db, config, fetch = globalThis.fetch, maintenant = () => Date.now() }) {
+export function creerAuth({ db, config, parametres, fetch = globalThis.fetch, maintenant = () => Date.now() }) {
   const optionsCookie = (maxAge, path = '/') => ({
     httpOnly: true,
     secure: config.cookiesSecurises,
@@ -79,7 +79,7 @@ export function creerAuth({ db, config, fetch = globalThis.fetch, maintenant = (
         console.error(`Connexion Gestion des DPS échouée : ${e.message}`);
         return echec(res, 'echange');
       }
-      if (!config.gestionnaires.includes(compte.email)) {
+      if (!parametres.estGestionnaire(compte.email)) {
         journaliser(db, compte.email, 'connexion.refusee');
         return echec(res, 'non_autorise');
       }
@@ -97,8 +97,8 @@ export function creerAuth({ db, config, fetch = globalThis.fetch, maintenant = (
       const ligne = db.prepare('SELECT compte, expire_le FROM sessions WHERE empreinte = ?').get(empreinte(jeton));
       if (!ligne || ligne.expire_le < maintenant()) return null;
       const compte = JSON.parse(ligne.compte);
-      // Retiré de GESTIONNAIRES : la session ne vaut plus rien.
-      return config.gestionnaires.includes(compte.email) ? compte : null;
+      // Retiré des administrateurs : la session ne vaut plus rien.
+      return parametres.estGestionnaire(compte.email) ? compte : null;
     },
 
     deconnecter(req, res) {

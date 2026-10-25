@@ -21,7 +21,12 @@ Les bénévoles remplissent et signent en ligne leur **Charte du conducteur / Au
 
 ### Accès et données personnelles
 
-- L'espace gestion n'est ouvert qu'aux comptes Gestion des DPS listés dans `GESTIONNAIRES`.
+- L'espace gestion n'est ouvert qu'à ses **administrateurs**, gérés depuis la page **Paramètres** de
+  l'espace : ajout, retrait, et autorisation en un clic des comptes qui ont tenté de se connecter.
+  On ne peut retirer ni son propre accès ni le dernier administrateur.
+- Les comptes de la variable `GESTIONNAIRES` (`infra/.env`) sont permanents et redonnés à chaque
+  démarrage : c'est le moyen de retrouver l'accès si plus personne ne peut se connecter.
+- La boîte qui reçoit les avis de nouvelles demandes se change aussi depuis **Paramètres**.
 - Connexion selon le contrat `CONTRAT_API_AUTORISATION_CONDUITE.md` du dépôt gestion-dps-ariege :
   code à usage unique échangé de serveur à serveur, aucun mot de passe ne transite par ce site.
 - Les demandes (identité, permis, signatures, PDF) sont gardées `RETENTION_JOURS` jours (400 par défaut,

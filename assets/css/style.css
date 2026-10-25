@@ -220,6 +220,17 @@ textarea {
 }
 .verifie textarea:invalid { border-color: var(--rouge); }
 #btn-retour { margin-bottom: 8px; }
+.liens-compte { display: flex; gap: 4px; align-items: center; }
+#vue-parametres > .lien { display: inline-block; margin-bottom: 8px; }
+.liste-reglages { list-style: none; margin: 8px 0 0; padding: 0; }
+.liste-reglages li {
+  display: flex; flex-wrap: wrap; justify-content: space-between; align-items: center; gap: 4px 12px;
+  padding: 10px 0; border-bottom: 1px solid var(--bordure);
+}
+.liste-reglages li:last-child { border-bottom: 0; }
+.liste-reglages .email { font-weight: 600; word-break: break-all; }
+.ligne-ajout { display: flex; flex-wrap: wrap; gap: 8px 12px; align-items: flex-end; margin-top: 12px; }
+.ligne-ajout label { flex: 1 1 260px; margin: 0; }
 
 @media (max-width: 560px) {
   .entete { gap: 12px; }
