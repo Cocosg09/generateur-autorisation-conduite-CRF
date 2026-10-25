@@ -1,0 +1,46 @@
+# Autorisation de conduite : serveur web du site statique (autorisation-conduite.croix-rouge-ariege.fr)
+#
+# Installé dans /opt/autorisation-conduite sur le VPS (voir infra/README.md) :
+#   /opt/autorisation-conduite/docker-compose.yml   (ce fichier)
+#   /opt/autorisation-conduite/nginx.conf
+#   /opt/autorisation-conduite/www/                 (alimenté par le workflow de déploiement, rsync)
+#
+# Le proxy HTTPS du VPS (gestion_dps_caddy) joint ce conteneur par le réseau partagé infra_interne.
+
+name: autorisation_conduite
+
+services:
+  web:
+    image: nginx:1.27-alpine
+    container_name: autorisation_conduite_web
+    restart: unless-stopped
+    read_only: true
+    tmpfs:
+      - /var/cache/nginx
+      - /var/run
+    volumes:
+      - ./www:/usr/share/nginx/html:ro
+      - ./nginx.conf:/etc/nginx/conf.d/default.conf:ro
+    # Port local (127.0.0.1 seulement) pour les contrôles depuis le VPS. Jamais ouvert sur Internet.
+    ports:
+      - "127.0.0.1:8084:80"
+    mem_limit: 32m
+    security_opt:
+      - no-new-privileges:true
+    logging:
+      driver: json-file
+      options:
+        max-size: "10m"
+        max-file: "3"
+    healthcheck:
+      test: ["CMD-SHELL", "wget -q -O /dev/null http://127.0.0.1/ || exit 1"]
+      interval: 30s
+      timeout: 5s
+      retries: 3
+    networks:
+      - partage
+
+networks:
+  partage:
+    external: true
+    name: infra_interne

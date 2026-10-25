@@ -1,4 +1,12 @@
-name: Tests et déploiement GitHub Pages
+# Tests, puis déploiement du site sur le VPS de la DT (voir infra/README.md).
+#
+# Le site est envoyé par rsync dans /opt/autorisation-conduite/www. La clé SSH utilisée
+# est restreinte côté VPS à cette seule écriture (rrsync -wo) : elle ne permet ni shell
+# ni lecture.
+#
+# Secrets GitHub nécessaires (Settings > Secrets and variables > Actions) :
+#   VPS_HOST, VPS_PORT, VPS_USER, VPS_SSH_KEY, VPS_KNOWN_HOSTS
+name: Tests et déploiement
 
 on:
   push:
@@ -8,12 +16,6 @@ on:
 
 permissions:
   contents: read
-  pages: write
-  id-token: write
-
-concurrency:
-  group: pages
-  cancel-in-progress: false
 
 jobs:
   tests:
@@ -26,30 +28,47 @@ jobs:
       - name: Génération du PDF
         run: node --test tests/*.test.mjs
 
-  build:
+  deploiement:
     needs: tests
-    if: github.event_name != 'pull_request'
+    if: github.event_name != 'pull_request' && github.ref == 'refs/heads/main'
     runs-on: ubuntu-latest
+    timeout-minutes: 10
+    concurrency:
+      group: deploiement-production
+      cancel-in-progress: false
     steps:
       - uses: actions/checkout@v4
+
       - name: Préparation du site
         run: |
           mkdir _site
-          cp -r index.html config.js CNAME assets _site/
+          cp -r index.html config.js assets _site/
           # Évite qu'une ancienne version des scripts reste en cache après une mise à jour
           sed -i "s#\(config\.js\|assets/js/app\.js\|assets/css/style\.css\)\"#\1?v=${GITHUB_SHA::8}\"#g" _site/index.html
           sed -i "s#from './\([a-z]*\)\.js'#from './\1.js?v=${GITHUB_SHA::8}'#" _site/assets/js/*.js
-      - uses: actions/configure-pages@v5
-      - uses: actions/upload-pages-artifact@v3
-        with:
-          path: _site
 
-  deploy:
-    needs: build
-    runs-on: ubuntu-latest
-    environment:
-      name: github-pages
-      url: ${{ steps.deployment.outputs.page_url }}
-    steps:
-      - id: deployment
-        uses: actions/deploy-pages@v4
+      - name: Envoi sur le VPS
+        env:
+          VPS_HOST: ${{ secrets.VPS_HOST }}
+          VPS_PORT: ${{ secrets.VPS_PORT }}
+          VPS_USER: ${{ secrets.VPS_USER }}
+          VPS_SSH_KEY: ${{ secrets.VPS_SSH_KEY }}
+          VPS_KNOWN_HOSTS: ${{ secrets.VPS_KNOWN_HOSTS }}
+        run: |
+          if [ -z "$VPS_SSH_KEY" ]; then
+            echo "::warning::Secrets VPS absents : lancer infra/installer-vps.sh (voir README). Rien n'est déployé."
+            exit 0
+          fi
+          install -m 700 -d ~/.ssh
+          printf '%s\n' "$VPS_SSH_KEY" > ~/.ssh/deploiement
+          chmod 600 ~/.ssh/deploiement
+          printf '%s\n' "$VPS_KNOWN_HOSTS" > ~/.ssh/known_hosts
+          rsync -rlz --delete --chmod=D755,F644 \
+            -e "ssh -i ~/.ssh/deploiement -p ${VPS_PORT:-22} -o StrictHostKeyChecking=yes" \
+            _site/ "$VPS_USER@$VPS_HOST:"
+
+      - name: Vérification en ligne
+        run: |
+          # Le DNS ou le certificat peuvent ne pas être encore en place : avertissement seulement.
+          curl -fsS -o /dev/null https://autorisation-conduite.croix-rouge-ariege.fr/ \
+            || echo "::warning::Le site ne répond pas encore en HTTPS (DNS ou certificat ?)"

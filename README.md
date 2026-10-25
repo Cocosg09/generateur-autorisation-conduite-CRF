@@ -60,21 +60,49 @@ node --test tests/*.test.mjs
 | `assets/fonts/` | Anton (titre) et Liberation Sans (métriques identiques à Arial) |
 | `assets/vendor/` | pdf-lib 1.17.1 et fontkit 1.1.1 |
 
-## Déploiement
+## Déploiement (VPS de la DT)
 
-Le workflow [`.github/workflows/deploy.yml`](.github/workflows/deploy.yml) lance les tests puis publie
-le site sur GitHub Pages à chaque push sur `main`.
+Le site est hébergé sur le VPS de la DT, derrière le proxy HTTPS commun (Caddy de Gestion des DPS) :
 
-Configuration à faire une fois :
+```
+Internet ─▶ gestion_dps_caddy ─(réseau infra_interne)─▶ autorisation_conduite_web (nginx)
+                                                         └─ /opt/autorisation-conduite/www
+```
 
-1. **Settings → Pages → Build and deployment → Source : GitHub Actions**.
-2. **Settings → Pages → Custom domain** : `autorisation-conduite.croix-rouge-ariege.fr`, puis cocher
-   **Enforce HTTPS** une fois le certificat émis.
-3. Chez l'hébergeur DNS de `croix-rouge-ariege.fr`, créer l'enregistrement :
+Le workflow [`.github/workflows/deploy.yml`](.github/workflows/deploy.yml) lance les tests puis, à chaque
+push sur `main`, envoie le site par rsync dans `/opt/autorisation-conduite/www`. La clé SSH utilisée ne
+peut **que** écrire dans ce dossier (`rrsync -wo`). nginx sert les fichiers à chaud, aucun redémarrage
+n'est nécessaire.
 
-   | Type | Nom | Valeur |
-   | --- | --- | --- |
-   | CNAME | `autorisation-conduite` | `<compte-github>.github.io.` |
+Fichiers d'infrastructure : [`infra/docker-compose.yml`](infra/docker-compose.yml),
+[`infra/nginx.conf`](infra/nginx.conf) (en-têtes de sécurité, CSP, cache).
+
+### Mise en service (une fois)
+
+1. Depuis un poste ayant l'accès SSH au VPS (`gestion-dps-vps`) et `gh` connecté :
+
+   ```bash
+   infra/installer-vps.sh
+   ```
+
+   Il crée le dossier et le conteneur, génère la clé de déploiement restreinte, remplit les secrets
+   GitHub (`VPS_HOST`, `VPS_PORT`, `VPS_USER`, `VPS_SSH_KEY`, `VPS_KNOWN_HOSTS`) et lance un déploiement.
+
+2. Ajouter le site au Caddyfile de Gestion des DPS (`infra/Caddyfile` du dépôt GESTION_DPS) :
+
+   ```
+   autorisation-conduite.croix-rouge-ariege.fr {
+   	encode gzip
+   	reverse_proxy autorisation_conduite_web:80
+   }
+   ```
+
+3. Chez OVH (zone `croix-rouge-ariege.fr`), créer l'enregistrement **A** `autorisation-conduite` vers
+   l'IP du VPS (même cible que `logistique.croix-rouge-ariege.fr`). Caddy obtient ensuite le
+   certificat HTTPS tout seul.
+
+Une modification de `infra/nginx.conf` ou `infra/docker-compose.yml` se réapplique en relançant
+`infra/installer-vps.sh`.
 
 ## Licences
 
