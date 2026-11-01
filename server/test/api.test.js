@@ -8,6 +8,7 @@ import { DatabaseSync } from 'node:sqlite';
 import { ouvrirBase } from '../src/base.js';
 import { lireConfig } from '../src/config.js';
 import { creerApp } from '../src/app.js';
+import { creerServiceDemandes } from '../src/demandes.js';
 import { creerGenerateurPdf } from '../src/pdf-serveur.js';
 
 const racine = fileURLToPath(new URL('../../', import.meta.url));
@@ -172,7 +173,7 @@ test('base existante : colonnes de l\'autorisation préfectorale ajoutées au d�
     ancienne.close();
     const db2 = ouvrirBase(fichier);
     const colonnes = db2.prepare('PRAGMA table_info(demandes)').all().map((c) => c.name);
-    assert.ok(colonnes.includes('prefectorale') && colonnes.includes('prefectorale_type'));
+    assert.ok(['prefectorale', 'prefectorale_type', 'renouvellement_de'].every((c) => colonnes.includes(c)));
     assert.equal(db2.prepare('SELECT prefectorale_type FROM demandes').get().prefectorale_type, null);
     db2.close();
     ouvrirBase(fichier).close(); // second démarrage : rien à ajouter
@@ -349,6 +350,87 @@ test('le RTPA annule une autorisation signée : e-mail au bénévole, plus valab
   assert.equal((await poster(`/api/gestion/demandes/${reference}/modifier`, { vehicules: ['VL'], signature: SIGNATURE }, avecSession)).status, 409);
   const journal = db.prepare('SELECT action FROM journal WHERE reference = ? ORDER BY id').all(reference).map((l) => l.action);
   assert.deepEqual(journal, ['demande.deposee', 'demande.signee', 'demande.annulee']);
+});
+
+test('renouvellement par le RTPA pour l\'année suivante : nouvelle autorisation signée, sans nouvelle demande', async () => {
+  const annee = new Date().getFullYear();
+  const { reference } = await (await poster('/api/demandes', DEMANDE)).json();
+  const { cookie } = await seConnecter();
+  const avecSession = { Cookie: cookie };
+  const detail = async (ref) => (await fetch(`${base}/api/gestion/demandes/${ref}`, { headers: avecSession })).json();
+  const renouveler = (ref, vehicules = ['VL', 'VPSP']) =>
+    poster(`/api/gestion/demandes/${ref}/renouveler`, { vehicules, signature: SIGNATURE }, avecSession);
+
+  // Seule une autorisation signée se renouvelle.
+  assert.deepEqual((await detail(reference)).renouvellement, { annee: annee + 1, reference: null, possible: false });
+  assert.equal((await renouveler(reference)).status, 409);
+  await poster(`/api/gestion/demandes/${reference}/signer`, { vehicules: ['VL'], signature: SIGNATURE }, avecSession);
+  assert.deepEqual((await detail(reference)).renouvellement, { annee: annee + 1, reference: null, possible: true });
+
+  envoyes = [];
+  assert.equal((await renouveler(reference, [])).status, 400);
+  const r = await renouveler(reference);
+  assert.equal(r.status, 200);
+  const nouvelle = `AC-${annee + 1}-0001`;
+  assert.deepEqual(await r.json(), { reference: nouvelle, statut: 'signee', annee: annee + 1 });
+
+  // Identité, permis, signature de la charte et autorisation préfectorale reprises ; véhicules du RTPA.
+  const renouvelee = await detail(nouvelle);
+  assert.equal(renouvelee.demande.statut, 'signee');
+  assert.equal(renouvelee.demande.annee, annee + 1);
+  assert.equal(renouvelee.demande.renouvellementDe, reference);
+  assert.equal(renouvelee.demande.permisNumero, '123456789012');
+  assert.deepEqual(renouvelee.demande.signatureConducteur, SIGNATURE);
+  assert.deepEqual(renouvelee.demande.vehicules, ['VL', 'VPSP'], 'la demande initiale du bénévole');
+  assert.deepEqual(renouvelee.demande.vehiculesAutorises, ['VL', 'VPSP']);
+  assert.equal(renouvelee.demande.rtpa.nom, 'Dominique TEST');
+  assert.equal(renouvelee.document.annee, annee + 1);
+  const piece = await fetch(`${base}/api/gestion/demandes/${nouvelle}/autorisation-prefectorale`, { headers: avecSession });
+  assert.deepEqual(Buffer.from(await piece.arrayBuffer()), PREFECTORALE);
+  const pdf = await fetch(`${base}/api/gestion/demandes/${nouvelle}/pdf`, { headers: avecSession });
+  assert.equal(Buffer.from(await pdf.arrayBuffer()).subarray(0, 5).toString(), '%PDF-');
+
+  // Envoi au bénévole, copie au RTPA, PDF joint.
+  assert.equal(envoyes.length, 2);
+  const auBenevole = envoyes.find((m) => m.a === 'camille@example.org');
+  assert.equal(auBenevole.sujet, `Votre autorisation de conduite ${annee + 1} (${nouvelle})`);
+  assert.ok(auBenevole.texte.includes(reference) && auBenevole.texte.includes('VL, VPSP'));
+  for (const m of envoyes) assert.equal(m.pieceJointe.nom, `Autorisation_conduite_${nouvelle}_EXEMPLE_Camille.pdf`);
+
+  // L'autorisation renouvelée reste signée et ne se renouvelle qu'une fois ; le renouvellement vaut
+  // déjà pour l'an prochain, il ne se renouvelle pas encore.
+  const origine = await detail(reference);
+  assert.equal(origine.demande.statut, 'signee');
+  assert.deepEqual(origine.renouvellement, { annee: annee + 1, reference: nouvelle, possible: false });
+  const encore = await renouveler(reference);
+  assert.equal(encore.status, 409);
+  assert.match((await encore.json()).erreur, /déjà renouvelée/);
+  assert.deepEqual(renouvelee.renouvellement, { annee: annee + 2, reference: null, possible: false });
+  assert.equal((await renouveler(nouvelle)).status, 409);
+
+  // Stock Secours voit les deux autorisations signées, la plus récente d'abord.
+  const corps = await (await lireAutorisations()).json();
+  assert.deepEqual(corps.autorisations.map((a) => [a.reference, a.annee]), [[nouvelle, annee + 1], [reference, annee]]);
+  const journal = db.prepare('SELECT action FROM journal WHERE reference = ? ORDER BY id').all(nouvelle).map((l) => l.action);
+  assert.deepEqual(journal, ['demande.renouvelee']);
+
+  // Un renouvellement annulé ne compte plus : l'autorisation d'origine se renouvelle de nouveau.
+  await poster(`/api/gestion/demandes/${nouvelle}/annuler`, { motif: 'Erreur de véhicules' }, avecSession);
+  assert.deepEqual((await detail(reference)).renouvellement, { annee: annee + 1, reference: null, possible: true });
+});
+
+test('purge : un renouvellement est gardé jusqu\'à la fin de son année', () => {
+  const db2 = ouvrirBase(':memory:');
+  let maintenant = new Date('2027-12-15T12:00:00Z');
+  const service = creerServiceDemandes({ db: db2, config: lireConfig({}), maintenant: () => maintenant });
+  const inserer = db2.prepare(`INSERT INTO demandes (reference, annee, numero, cree_le, statut, benevole)
+    VALUES (?, ?, ?, '2026-11-01T10:00:00.000Z', 'signee', '{}')`);
+  inserer.run('AC-2026-0001', 2026, 1);
+  inserer.run('AC-2027-0001', 2027, 1); // renouvellement établi en novembre 2026
+  assert.equal(service.purger(), 1);
+  assert.deepEqual(db2.prepare('SELECT reference FROM demandes').all().map((l) => l.reference), ['AC-2027-0001']);
+  maintenant = new Date('2028-01-01T00:00:00Z');
+  assert.equal(service.purger(), 1);
 });
 
 test('refus avec motif, e-mail au bénévole', async () => {

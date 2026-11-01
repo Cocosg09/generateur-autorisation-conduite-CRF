@@ -1,5 +1,5 @@
 // Demandes d'autorisation de conduite : dépôt par le bénévole, signature ou refus par le RTPA,
-// annulation par le RTPA d'une autorisation signée.
+// annulation par le RTPA d'une autorisation signée ou renouvellement pour l'année suivante.
 import { VEHICULES, SIG_W, SIG_H } from '../../assets/js/pdf.js';
 import { journaliser } from './base.js';
 
@@ -8,6 +8,7 @@ export class DemandeIntrouvable extends Error {}
 export class DemandeDejaTraitee extends Error {}
 export class DemandeNonSignee extends Error {}
 export class DemandeNonRefusee extends Error {}
+export class RenouvellementImpossible extends Error {}
 
 const CODES = new Set(VEHICULES.map((v) => v.code));
 const EMAIL = /^[^\s@<>"',;]+@[^\s@<>"',;]+\.[^\s@<>"',;]+$/;
@@ -24,7 +25,7 @@ export const FORMATS_PREFECTORALE = [
 ];
 // Toutes les colonnes sauf les fichiers (PDF signé, autorisation préfectorale), lus à part.
 const COLONNES = `reference, annee, cree_le, statut, benevole, vehicules, rtpa, signature_rtpa, motif_refus, traite_le,
-  prefectorale_type, length(prefectorale) AS prefectorale_taille, annulation`;
+  prefectorale_type, length(prefectorale) AS prefectorale_taille, annulation, renouvellement_de`;
 
 function chaine(valeur, nom, max) {
   if (typeof valeur !== 'string' || !valeur.trim()) throw new ErreurValidation(`Champ « ${nom} » manquant`);
@@ -115,6 +116,7 @@ const lire = (ligne) =>
       ? { type: ligne.prefectorale_type, taille: ligne.prefectorale_taille }
       : null,
     annulation: ligne.annulation ? JSON.parse(ligne.annulation) : null,
+    renouvellementDe: ligne.renouvellement_de,
   };
 
 export const nomFichier = (d, prefixe = 'Autorisation_conduite', extension = 'pdf') => {
@@ -378,6 +380,84 @@ export function creerServiceDemandes({ db, config, parametres, messagerie, gener
       return { reference, statut: 'annulee' };
     },
 
+    /**
+     * Renouvellement d'une autorisation : pour l'année qui suit la sienne (l'année en cours si elle
+     * est périmée), jamais au-delà de l'année prochaine, une seule fois (un renouvellement annulé ne
+     * compte pas). Référence du renouvellement s'il est déjà établi.
+     */
+    renouvellement(d) {
+      const etabli = db
+        .prepare("SELECT reference, annee FROM demandes WHERE renouvellement_de = ? AND statut <> 'annulee'")
+        .get(d.reference);
+      if (etabli) return { annee: etabli.annee, reference: etabli.reference, possible: false };
+      const enCours = maintenant().getFullYear();
+      const annee = Math.max(d.annee + 1, enCours);
+      return { annee, reference: null, possible: d.statut === 'signee' && annee <= enCours + 1 };
+    },
+
+    /**
+     * Le RTPA renouvelle une autorisation signée sans nouvelle demande du bénévole : nouvelle
+     * autorisation signée (nouvelle référence, année suivante) reprenant identité, permis, signature
+     * de la charte et autorisation préfectorale. L'autorisation renouvelée reste valable.
+     */
+    async renouveler(reference, corps, compte) {
+      const verifier = () => {
+        const d = service.obtenir(reference);
+        if (d.statut !== 'signee') throw new DemandeNonSignee(reference);
+        const r = service.renouvellement(d);
+        if (r.reference) throw new RenouvellementImpossible(`Autorisation déjà renouvelée (${r.reference})`);
+        if (!r.possible) throw new RenouvellementImpossible(`Autorisation déjà établie pour ${d.annee}`);
+        return { d, annee: r.annee };
+      };
+      const { d, annee } = verifier();
+      const autorises = vehicules(corps?.vehicules);
+      const sig = signature(corps?.signature);
+      const rtpa = { id: compte.id, nom: `${compte.prenom} ${compte.nom}`, email: compte.email };
+      const pdf = await genererPdf(donneesPdf({ ...d, annee }, { vehicules: autorises, rtpa, signatureRtpa: sig }));
+      // Nouvelle vérification après la génération du PDF, sans attente jusqu'à l'écriture :
+      // deux renouvellements simultanés de la même autorisation ne passent pas.
+      verifier();
+      const { suivant } = db
+        .prepare('SELECT COALESCE(MAX(numero), 0) + 1 AS suivant FROM demandes WHERE annee = ?')
+        .get(annee);
+      const nouvelle = `AC-${annee}-${String(suivant).padStart(4, '0')}`;
+      const date = maintenant().toISOString();
+      db.prepare(
+        `INSERT INTO demandes (reference, annee, numero, cree_le, statut, benevole, vehicules, rtpa, signature_rtpa,
+           traite_le, pdf, prefectorale, prefectorale_type, renouvellement_de)
+         SELECT ?, ?, ?, ?, 'signee', benevole, ?, ?, ?, ?, ?, prefectorale, prefectorale_type, reference
+         FROM demandes WHERE reference = ?`,
+      ).run(nouvelle, annee, suivant, date, JSON.stringify(autorises), JSON.stringify(rtpa), JSON.stringify(sig), date, pdf, reference);
+      journaliser(db, `rtpa ${compte.email}`, 'demande.renouvelee', nouvelle);
+
+      const pieceJointe = { nom: nomFichier({ ...d, reference: nouvelle }), contenu: pdf };
+      await Promise.allSettled([
+        messagerie.envoyer({
+          a: d.email,
+          sujet: `Votre autorisation de conduite ${annee} (${nouvelle})`,
+          texte: [
+            `Bonjour ${d.prenom},`,
+            '',
+            `Votre autorisation de conduite a été renouvelée pour ${annee} par le RTPA. Vous trouverez ci-joint la nouvelle autorisation signée, établie à partir de la précédente (${reference}).`,
+            '',
+            `Référence : ${nouvelle}`,
+            `Véhicules autorisés : ${autorises.join(', ')}`,
+            '',
+            `${rtpa.nom}`,
+            `${config.structure.fonction} – ${config.structure.structure}`,
+          ].join('\n'),
+          pieceJointe,
+        }),
+        messagerie.envoyer({
+          a: parametres.emailRtpa(),
+          sujet: `Autorisation de conduite renouvelée ${nouvelle}`,
+          texte: `Autorisation ${nouvelle} de ${d.prenom} ${d.nom}, renouvellement pour ${annee} de ${reference}, signée par ${rtpa.nom} (${autorises.join(', ')}).\n\nCopie automatique.`,
+          pieceJointe,
+        }),
+      ]);
+      return { reference: nouvelle, statut: 'signee', annee };
+    },
+
     /** Une demande refusée repasse en attente : le RTPA pourra la signer (ou la refuser à nouveau). */
     rouvrir(reference, compte) {
       const resultat = db.prepare(
@@ -411,7 +491,10 @@ export function creerServiceDemandes({ db, config, parametres, messagerie, gener
 
     purger() {
       const limite = new Date(maintenant().getTime() - config.retentionJours * 86_400_000).toISOString();
-      const { changes } = db.prepare('DELETE FROM demandes WHERE cree_le < ?').run(limite);
+      // Un renouvellement, établi avant son année, est gardé au moins jusqu'à la fin de celle-ci.
+      const { changes } = db
+        .prepare('DELETE FROM demandes WHERE cree_le < ? AND annee < ?')
+        .run(limite, maintenant().getFullYear());
       db.prepare('DELETE FROM journal WHERE date < ?').run(limite);
       return changes;
     },

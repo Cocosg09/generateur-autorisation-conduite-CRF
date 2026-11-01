@@ -1,5 +1,5 @@
-// Espace gestion du RTPA : liste des demandes, signature ou refus, modification ou annulation d'une
-// autorisation signée, réouverture ou suppression d'une demande refusée, paramètres (dont le dépôt sur le Drive).
+// Espace gestion du RTPA : liste des demandes, signature ou refus, modification, renouvellement ou
+// annulation d'une autorisation signée, réouverture ou suppression d'une demande refusée, paramètres (dont le dépôt sur le Drive).
 import { VEHICULES, libelleVehicule, SIG_W, SIG_H } from './pdf.js';
 import { PadSignature } from './signature.js';
 import {
@@ -309,8 +309,9 @@ async function ouvrirDemande(reference) {
   $('#badge-statut').className = `badge ${d.statut}`;
   $('#badge-statut').textContent = LIBELLES_STATUT[d.statut];
 
+  const lien = (ref) => element('a', { className: 'lien', href: `#/${ref}`, textContent: ref });
   const lignes = [
-    ['Déposée le', dateHeure(d.creeLe)],
+    [d.renouvellementDe ? 'Établie le' : 'Déposée le', dateHeure(d.creeLe)],
     ['E-mail', d.email],
     ['N° de permis', d.permisNumero],
     ['Délivré le', formatDate(d.permisDate)],
@@ -330,13 +331,15 @@ async function ouvrirDemande(reference) {
     lignes.push(['Annulée par', `${d.annulation.rtpa.nom}, le ${dateHeure(d.annulation.le)}`]);
     lignes.push(["Motif de l'annulation", d.annulation.motif]);
   }
+  if (d.renouvellementDe) lignes.push(['Renouvellement de', lien(d.renouvellementDe)]);
+  const { renouvellement } = reponse;
+  if (renouvellement.reference) lignes.push([`Renouvelée pour ${renouvellement.annee}`, lien(renouvellement.reference)]);
   const dl = $('#recap');
   dl.innerHTML = '';
   for (const [terme, valeur] of lignes) {
-    dl.append(
-      Object.assign(document.createElement('dt'), { textContent: terme }),
-      Object.assign(document.createElement('dd'), { textContent: valeur }),
-    );
+    const dd = element('dd');
+    dd.append(valeur);
+    dl.append(element('dt', { textContent: terme }), dd);
   }
   const { drive } = reponse;
   const signee = d.statut === 'signee';
@@ -357,7 +360,7 @@ async function ouvrirDemande(reference) {
   $('#form-annulation').hidden = true;
   $('#bloc-traite').hidden = enAttente;
   if (enAttente) {
-    preparerSignature(d.vehicules, false);
+    preparerSignature(d.vehicules, 'signer');
   } else {
     $('#form-signature').hidden = true;
     const refusee = d.statut === 'refusee';
@@ -372,6 +375,8 @@ async function ouvrirDemande(reference) {
     $('#btn-pdf').hidden = refusee;
     $('#btn-pdf').href = `/api/gestion/demandes/${encodeURIComponent(d.reference)}/pdf`;
     $('#btn-modifier').hidden = !signee;
+    $('#btn-renouveler').hidden = !renouvellement.possible;
+    $('#btn-renouveler').textContent = `Renouveler pour ${renouvellement.annee}`;
     $('#btn-annuler').hidden = !signee;
     $('#btn-rouvrir').hidden = !refusee;
     $('#btn-supprimer').hidden = !refusee;
@@ -415,35 +420,43 @@ function afficherPrefectorale(d) {
 }
 
 /**
- * Formulaire de signature, pré-coché avec les véhicules donnés. En modification, il établit une
- * nouvelle version d'une autorisation déjà signée (pas de refus possible, retour arrière offert).
+ * Formulaire de signature, pré-coché avec les véhicules donnés. Le mode est l'action envoyée au
+ * serveur : signer une demande en attente, modifier une autorisation signée (nouvelle version) ou la
+ * renouveler pour l'année suivante (nouvelle autorisation). Hors signature, pas de refus mais un retour arrière.
  */
-let modification = false;
-function preparerSignature(vehicules, enModification) {
-  modification = enModification;
-  const { document: doc } = courante;
+let mode = 'signer';
+function preparerSignature(vehicules, nouveauMode) {
+  mode = nouveauMode;
+  const { document: doc, renouvellement } = courante;
   afficherVehicules($('#vehicules-rtpa'), vehicules);
   $('#identite-rtpa').textContent =
     `${compte.prenom} ${compte.nom} – Fonction : ${doc.rtpa.fonction}, pour la structure : ${doc.rtpa.structure}`;
-  $('#aide-modification').hidden = !enModification;
-  $('#btn-signer').textContent = enModification
-    ? 'Signer la nouvelle version et l\'envoyer au bénévole'
-    : 'Signer et envoyer au bénévole';
-  $('#btn-ouvrir-refus').hidden = enModification;
-  $('#btn-annuler-modification').hidden = !enModification;
+  $('#aide-modification').hidden = mode !== 'modifier';
+  $('#aide-renouvellement').hidden = mode !== 'renouveler';
+  $('#annee-renouvellement').textContent = renouvellement.annee;
+  $('#btn-signer').textContent = {
+    signer: 'Signer et envoyer au bénévole',
+    modifier: 'Signer la nouvelle version et l\'envoyer au bénévole',
+    renouveler: `Signer l'autorisation ${renouvellement.annee} et l'envoyer au bénévole`,
+  }[mode];
+  $('#btn-ouvrir-refus').hidden = mode !== 'signer';
+  $('#btn-annuler-modification').hidden = mode === 'signer';
+  $('#btn-annuler-modification').textContent = mode === 'renouveler' ? 'Annuler le renouvellement' : 'Annuler la modification';
   pad.effacer();
   montrerErreur('#erreur-vehicules-rtpa', false);
   montrerErreur('#erreur-signature-rtpa', false);
   $('#form-signature').hidden = false;
 }
 
-$('#btn-modifier').addEventListener('click', () => {
-  const d = courante.demande;
-  preparerSignature(d.vehiculesAutorises ?? d.vehicules, true);
-  $('#bloc-traite').hidden = true;
-  $('#form-annulation').hidden = true;
-  $('#form-signature').scrollIntoView({ behavior: 'smooth' });
-});
+for (const action of ['modifier', 'renouveler']) {
+  $(`#btn-${action}`).addEventListener('click', () => {
+    const d = courante.demande;
+    preparerSignature(d.vehiculesAutorises ?? d.vehicules, action);
+    $('#bloc-traite').hidden = true;
+    $('#form-annulation').hidden = true;
+    $('#form-signature').scrollIntoView({ behavior: 'smooth' });
+  });
+}
 $('#btn-annuler-modification').addEventListener('click', () => {
   $('#form-signature').hidden = true;
   $('#bloc-traite').hidden = false;
@@ -451,6 +464,7 @@ $('#btn-annuler-modification').addEventListener('click', () => {
 
 const documentEnCours = () => ({
   ...courante.document,
+  ...(mode === 'renouveler' && { annee: courante.renouvellement.annee }),
   // Le signataire du document est le compte connecté, pas celui de la version précédente.
   rtpa: { ...courante.document.rtpa, nom: `${compte.prenom} ${compte.nom}` },
   vehicules: vehiculesCoches($('#vehicules-rtpa')),
@@ -470,11 +484,15 @@ $('#form-signature').addEventListener('submit', async (ev) => {
   bouton.disabled = true;
   try {
     const reference = courante.demande.reference;
-    const action = modification ? 'modifier' : 'signer';
-    await api(`/api/gestion/demandes/${encodeURIComponent(reference)}/${action}`, {
+    const resultat = await api(`/api/gestion/demandes/${encodeURIComponent(reference)}/${mode}`, {
       methode: 'POST', corps: { vehicules, signature: pad.traits() },
     });
-    notifier(modification
+    if (mode === 'renouveler') {
+      notifier(`Autorisation ${resultat.annee} ${resultat.reference} signée et envoyée au bénévole.`);
+      location.hash = `#/${resultat.reference}`;
+      return;
+    }
+    notifier(mode === 'modifier'
       ? `Nouvelle version de l'autorisation ${reference} signée et envoyée au bénévole.`
       : `Autorisation ${reference} signée et envoyée au bénévole.`);
     await ouvrirDemande(reference);

@@ -75,6 +75,10 @@
       <form id="form-signature" novalidate hidden>
         <p class="aide" id="aide-modification" hidden>Vous établissez une <strong>nouvelle version</strong> de cette autorisation :
           elle remplace le document signé précédent et sera renvoyée au bénévole par e-mail.</p>
+        <p class="aide" id="aide-renouvellement" hidden>Vous renouvelez cette autorisation pour <strong id="annee-renouvellement"></strong>,
+          sans nouvelle demande du bénévole : une nouvelle autorisation, avec sa propre référence, reprend son identité, son permis,
+          sa signature de la charte et, s'il y a lieu, son autorisation préfectorale. Elle lui sera envoyée par e-mail ;
+          l'autorisation actuelle reste valable jusqu'à la fin de son année.</p>
         <fieldset>
           <legend>Véhicules autorisés</legend>
           <p class="aide">Cochez ou décochez les véhicules selon ce que vous autorisez.</p>
@@ -115,6 +119,7 @@
         <p id="texte-traite"></p>
         <div class="actions">
           <a class="bouton secondaire" id="btn-pdf" hidden>Télécharger le PDF signé</a>
+          <button type="button" class="secondaire" id="btn-renouveler" hidden>Renouveler</button>
           <button type="button" class="lien" id="btn-modifier" hidden>Modifier les véhicules autorisés</button>
           <button type="button" class="lien danger" id="btn-annuler" hidden>Annuler l'autorisation</button>
           <button type="button" class="secondaire" id="btn-rouvrir" hidden>Rouvrir la demande</button>

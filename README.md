@@ -32,6 +32,12 @@ Les bénévoles remplissent et signent en ligne leur **Charte du conducteur / Au
    e-mail (copie au RTPA). C'est définitif : elle n'est plus valable, n'est plus transmise à Stock Secours ni
    déposée sur le Google Drive. La fiche, le PDF signé et le motif restent consultables jusqu'à la purge ; les
    documents déjà déposés sur le Drive sont mis à la corbeille au passage suivant du script (`demande.annulee`).
+8. **Sur une autorisation signée**, le RTPA peut aussi la **renouveler pour l'année suivante** (pour 2027 dès
+   l'automne 2026, par exemple) sans nouvelle demande du bénévole : il ajuste les véhicules et signe. Une
+   nouvelle autorisation (`AC-2027-…`) reprend l'identité, le permis, la signature de la charte et
+   l'autorisation préfectorale de la précédente ; elle part au bénévole par e-mail (copie au RTPA). L'autorisation
+   renouvelée reste valable, ne se renouvelle qu'une fois, et les deux fiches se renvoient l'une à l'autre
+   (`demande.renouvelee` au journal).
 
 ### Accès et données personnelles
 
@@ -44,7 +50,7 @@ Les bénévoles remplissent et signent en ligne leur **Charte du conducteur / Au
 - Connexion selon le contrat `CONTRAT_API_AUTORISATION_CONDUITE.md` du dépôt gestion-dps-ariege :
   code à usage unique échangé de serveur à serveur, aucun mot de passe ne transite par ce site.
 - Les demandes (identité, permis, signatures, autorisation préfectorale, PDF) sont gardées `RETENTION_JOURS` jours (400 par défaut,
-  environ 13 mois), puis supprimées automatiquement. Chaque action est inscrite dans un journal en ajout seul.
+  environ 13 mois), puis supprimées automatiquement ; un renouvellement est gardé au moins jusqu'à la fin de son année. Chaque action est inscrite dans un journal en ajout seul.
 
 ### Lien avec Stock Secours
 

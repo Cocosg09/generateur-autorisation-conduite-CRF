@@ -21,6 +21,7 @@ const TABLE_DEMANDES = (nom) => `
     prefectorale   BLOB,                   -- autorisation préfectorale jointe à une demande de VPSP
     prefectorale_type TEXT,                -- application/pdf, image/jpeg ou image/png
     annulation     TEXT,                   -- JSON : { rtpa, le, motif } d'une autorisation signée puis annulée
+    renouvellement_de TEXT,                -- référence de l'autorisation renouvelée par le RTPA
     UNIQUE (annee, numero)
   );`;
 
@@ -75,7 +76,7 @@ export function ouvrirBase(fichier) {
   db.exec(SCHEMA);
   // Colonnes ajoutées après la création des premières bases.
   const colonnes = new Set(db.prepare('PRAGMA table_info(demandes)').all().map((c) => c.name));
-  for (const [nom, type] of [['prefectorale', 'BLOB'], ['prefectorale_type', 'TEXT'], ['annulation', 'TEXT']]) {
+  for (const [nom, type] of [['prefectorale', 'BLOB'], ['prefectorale_type', 'TEXT'], ['annulation', 'TEXT'], ['renouvellement_de', 'TEXT']]) {
     if (!colonnes.has(nom)) db.exec(`ALTER TABLE demandes ADD COLUMN ${nom} ${type}`);
   }
   // Statut « annulee » ajouté après coup : SQLite ne change pas une contrainte CHECK, la table est recréée.

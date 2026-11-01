@@ -54,15 +54,16 @@ refusée, une autorisation annulée ou supprimée par le RTPA, ou purgée au bou
 | --- | --- |
 | `types` | Référentiel des types de véhicules du document, dans l'ordre du document. Les codes de `vehicules` en sont issus. |
 | `reference` | Référence du document (`AC-<année>-<n°>`), unique. |
-| `annee` | Année de la charte du conducteur (celle du dépôt de la demande). |
+| `annee` | Année de la charte du conducteur : celle du dépôt de la demande, ou l'année suivante pour un renouvellement établi par le RTPA. |
 | `email` | Adresse saisie par le bénévole, en minuscules : **clé de rapprochement** avec l'annuaire de Stock Secours. |
 | `vehicules` | Types autorisés **par le RTPA** (pas la demande du bénévole), dans l'ordre de `types`. Si le RTPA modifie une autorisation, cette liste change et `signeeLe` est la date de la nouvelle version. |
 | `signeeLe` | Date de la signature du RTPA (ISO 8601, UTC). |
 | `rtpa` | Nom du signataire. |
 
 Un même bénévole peut avoir **plusieurs** autorisations signées (par exemple une nouvelle demande l'année
-suivante) : **la plus récente (`signeeLe`) fait foi**. Si le RTPA annule celle-ci, elle disparaît de la liste
-et la précédente encore signée, s'il y en a une, fait de nouveau foi.
+suivante, ou un renouvellement pour l'année suivante signé par le RTPA dès l'automne) : **la plus récente
+(`signeeLe`) fait foi**, même si son `annee` n'est pas encore commencée. Si le RTPA annule celle-ci, elle
+disparaît de la liste et la précédente encore signée, s'il y en a une, fait de nouveau foi.
 
 Les données du permis (numéro, date, préfecture) et les signatures ne sont jamais exposées.
 

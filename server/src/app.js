@@ -3,7 +3,10 @@ import express from 'express';
 import { join } from 'node:path';
 import { creerAuth } from './auth.js';
 import { creerDepotDrive } from './drive.js';
-import { creerServiceDemandes, DemandeDejaTraitee, DemandeIntrouvable, DemandeNonRefusee, DemandeNonSignee, ErreurValidation } from './demandes.js';
+import {
+  creerServiceDemandes, DemandeDejaTraitee, DemandeIntrouvable, DemandeNonRefusee, DemandeNonSignee, ErreurValidation,
+  RenouvellementImpossible,
+} from './demandes.js';
 import { creerIntegrationStockSecours } from './integrations.js';
 import { creerParametres, ErreurParametre } from './parametres.js';
 
@@ -119,7 +122,12 @@ export function creerApp({ db, config, messagerie, genererPdf, fetch }) {
   });
   gestion.get('/demandes/:reference', (req, res) => {
     const d = demandes.obtenir(req.params.reference);
-    res.json({ demande: d, document: demandes.apercu(req.params.reference, req.compte), drive: drive.pourDemande(d.reference) });
+    res.json({
+      demande: d,
+      document: demandes.apercu(req.params.reference, req.compte),
+      drive: drive.pourDemande(d.reference),
+      renouvellement: demandes.renouvellement(d),
+    });
   });
   gestion.get('/demandes/:reference/pdf', (req, res) => {
     const { contenu, nom } = demandes.pdfSigne(req.params.reference);
@@ -150,6 +158,13 @@ export function creerApp({ db, config, messagerie, genererPdf, fetch }) {
   gestion.post('/demandes/:reference/modifier', async (req, res, suivant) => {
     try {
       res.json(await demandes.modifier(req.params.reference, req.body, req.compte));
+    } catch (e) {
+      suivant(e);
+    }
+  });
+  gestion.post('/demandes/:reference/renouveler', async (req, res, suivant) => {
+    try {
+      res.json(await demandes.renouveler(req.params.reference, req.body, req.compte));
     } catch (e) {
       suivant(e);
     }
@@ -239,6 +254,7 @@ export function creerApp({ db, config, messagerie, genererPdf, fetch }) {
     if (err instanceof DemandeDejaTraitee) return res.status(409).json({ erreur: 'Demande déjà traitée' });
     if (err instanceof DemandeNonSignee) return res.status(409).json({ erreur: 'Demande non signée' });
     if (err instanceof DemandeNonRefusee) return res.status(409).json({ erreur: 'Demande non refusée' });
+    if (err instanceof RenouvellementImpossible) return res.status(409).json({ erreur: err.message });
     if (err.type === 'entity.parse.failed' || err.type === 'entity.too.large') {
       return res.status(400).json({ erreur: 'Requête invalide' });
     }
