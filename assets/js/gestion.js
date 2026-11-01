@@ -131,7 +131,7 @@ async function afficherParametres(etat) {
 
 const pluriel = (n, mot) => `${n} ${mot}${n > 1 ? 's' : ''}`;
 
-function afficherDrive({ actif, cle, dossier, passage, enAttente }) {
+function afficherDrive({ actif, cle, dossier, passage, enAttente, aRetirer }) {
   $('#form-drive-dossier').elements.dossier.value = dossier?.lien ?? '';
   $('#lien-dossier-drive').hidden = !dossier;
   if (dossier) $('#lien-dossier-drive').href = dossier.lien;
@@ -143,8 +143,9 @@ function afficherDrive({ actif, cle, dossier, passage, enAttente }) {
   } else if (!passage) {
     etat = `Script généré le ${dateHeure(cle.le)} par ${cle.par}, pas encore passé : lancez « installer » dans Google Apps Script.`;
   } else {
-    etat = `Dernier passage du script le ${dateHeure(passage.le)} : ${pluriel(passage.deposes, 'document')} déposé${passage.deposes > 1 ? 's' : ''}. `
-      + `${pluriel(enAttente, 'document')} en attente de dépôt.`;
+    const retires = passage.retires ? `, ${passage.retires} mis à la corbeille (autorisations annulées)` : '';
+    etat = `Dernier passage du script le ${dateHeure(passage.le)} : ${pluriel(passage.deposes, 'document')} déposé${passage.deposes > 1 ? 's' : ''}${retires}. `
+      + `${pluriel(enAttente, 'document')} en attente de dépôt${aRetirer ? `, ${aRetirer} à mettre à la corbeille` : ''}.`;
     if (passage.erreur) alerte = `Ce passage a échoué : ${passage.erreur}`;
     else if (Date.now() - Date.parse(passage.le) > 3600_000) {
       alerte = "Le script n'est pas repassé depuis plus d'une heure : vérifiez qu'il est toujours installé dans Google Apps Script.";
@@ -340,12 +341,13 @@ async function ouvrirDemande(reference) {
   const { drive } = reponse;
   const signee = d.statut === 'signee';
   const annulee = d.statut === 'annulee';
-  // Une autorisation annulée n'est plus déposée ; ce qui l'a déjà été reste sur le Drive.
+  // Une autorisation annulée n'est plus déposée ; ce qui l'a déjà été part à la corbeille du Drive au
+  // prochain passage du script (s'il est installé), sinon y reste.
   const surDrive = annulee && Boolean(drive.autorisation || drive.prefectorale);
   if ((signee && (drive.actif || drive.autorisation)) || surDrive) {
     const dd = element('dd');
-    dd.append(etatDepot('Autorisation signée', drive.autorisation, signee));
-    if (d.autorisationPrefectorale) dd.append(etatDepot('Autorisation préfectorale', drive.prefectorale, signee));
+    dd.append(etatDepot('Autorisation signée', drive.autorisation, signee, drive.actif));
+    if (d.autorisationPrefectorale) dd.append(etatDepot('Autorisation préfectorale', drive.prefectorale, signee, drive.actif));
     dl.append(element('dt', { textContent: 'Google Drive' }), dd);
   }
   afficherPrefectorale(d);
@@ -363,7 +365,9 @@ async function ouvrirDemande(reference) {
       signee: `Autorisation signée et envoyée par e-mail à ${d.email}.`,
       refusee: 'Demande refusée ; le bénévole en a été informé par e-mail. Vous pouvez la rouvrir pour la traiter à nouveau, ou la supprimer définitivement.',
       annulee: `Autorisation annulée ; le bénévole en a été informé par e-mail et elle n'est plus transmise à Stock Secours.${
-        surDrive ? ' Les documents déjà déposés sur le Google Drive y restent : supprimez-les si besoin.' : ''}`,
+        !surDrive ? '' : drive.actif
+          ? ' Les documents déposés sur le Google Drive seront mis à la corbeille au prochain passage du script.'
+          : ' Les documents déjà déposés sur le Google Drive y restent : supprimez-les si besoin.'}`,
     }[d.statut];
     $('#btn-pdf').hidden = refusee;
     $('#btn-pdf').href = `/api/gestion/demandes/${encodeURIComponent(d.reference)}/pdf`;
@@ -377,9 +381,9 @@ async function ouvrirDemande(reference) {
 
 /**
  * Une pièce sur le Drive : déposée (lien vers le fichier), ou en attente du prochain passage du script.
- * Hors autorisation en cours (annulée), plus rien n'est attendu.
+ * Pour une autorisation annulée, plus rien n'est déposé : ce qui l'a été attend la corbeille.
  */
-function etatDepot(libelle, depot, enCours) {
+function etatDepot(libelle, depot, enCours, scriptActif) {
   const ligne = element('span', { className: 'depot-drive' });
   if (!depot) {
     ligne.textContent = `${libelle} : ${enCours ? 'en attente de dépôt par le script' : 'non déposée'}`;
@@ -390,6 +394,7 @@ function etatDepot(libelle, depot, enCours) {
     element('a', { className: 'lien', href: depot.lien, target: '_blank', rel: 'noopener', textContent: 'Ouvrir sur le Drive' }),
   );
   if (!depot.aJour && enCours) ligne.append(' · nouvelle version en attente de dépôt');
+  if (!enCours && scriptActif) ligne.append(' · à mettre à la corbeille au prochain passage du script');
   return ligne;
 }
 

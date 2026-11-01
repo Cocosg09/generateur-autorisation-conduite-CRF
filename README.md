@@ -31,7 +31,7 @@ Les bénévoles remplissent et signent en ligne leur **Charte du conducteur / Au
 7. **Sur une autorisation signée**, le RTPA peut aussi l'**annuler**, avec un motif transmis au bénévole par
    e-mail (copie au RTPA). C'est définitif : elle n'est plus valable, n'est plus transmise à Stock Secours ni
    déposée sur le Google Drive. La fiche, le PDF signé et le motif restent consultables jusqu'à la purge ; les
-   documents déjà déposés sur le Drive y restent, à supprimer à la main si besoin (`demande.annulee`).
+   documents déjà déposés sur le Drive sont mis à la corbeille au passage suivant du script (`demande.annulee`).
 
 ### Accès et données personnelles
 
@@ -71,7 +71,9 @@ et aucun identifiant Google ne sont nécessaires sur ce serveur ; les fichiers a
 2. Sur [script.google.com](https://script.google.com/home), avec son compte Croix-Rouge : *Nouveau projet*,
    coller le code, enregistrer, puis exécuter la fonction `installer` et accepter les autorisations.
 3. Les autorisations déjà signées sont déposées au premier passage ; ensuite, chaque signature et chaque
-   modification (la nouvelle version remplace l'ancienne, mise à la corbeille du Drive). La fiche d'une
+   modification (la nouvelle version remplace l'ancienne, mise à la corbeille du Drive). Les pièces d'une
+   autorisation annulée partent aussi à la corbeille du Drive : un script généré avant cette fonction les laisse en
+   place, il faut en générer un nouveau et remplacer son code dans Google Apps Script. La fiche d'une
    demande indique si ses pièces sont déposées, avec un lien vers le fichier ; Paramètres montre le dernier
    passage du script et ses erreurs. Google prévient aussi le RTPA par e-mail si un passage échoue.
 

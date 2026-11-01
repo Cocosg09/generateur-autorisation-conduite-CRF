@@ -11,7 +11,7 @@
  * nouvelle version après une modification, est déposée dans le dossier choisi dans les Paramètres de
  * l'espace gestion, avec l'autorisation préfectorale jointe par le bénévole pour le VPSP : chaque
  * bénévole a son sous-dossier « NOM Prénom », créé au besoin. Une nouvelle version remplace la
- * précédente, qui part à la corbeille du Drive.
+ * précédente, qui part à la corbeille du Drive, comme les pièces d'une autorisation annulée par le RTPA.
  * Si un passage échoue, Google prévient le propriétaire du script par e-mail.
  *
  * Code généré par l'espace gestion : la clé ci-dessous est personnelle, ne pas la partager.
@@ -32,11 +32,18 @@ function installer() {
 function deposer() {
   const debut = Date.now();
   let deposes = 0;
+  let retires = 0;
   let erreur = null;
   try {
     while (Date.now() - debut < DUREE_MAX_MS) {
       const lot = JSON.parse(appeler('get', '/documents').getContentText());
-      if (!lot.documents.length) break;
+      const aRetirer = lot.aRetirer || [];
+      if (!lot.documents.length && !aRetirer.length) break;
+      for (const doc of aRetirer) {
+        retirerDocument(doc);
+        retires += 1;
+      }
+      if (!lot.documents.length) continue;
       if (!lot.dossier) throw new Error("Aucun dossier Google Drive n'est choisi dans les Paramètres de l'espace gestion.");
       const dossier = DriveApp.getFolderById(lot.dossier);
       for (const doc of lot.documents) {
@@ -47,7 +54,7 @@ function deposer() {
   } catch (e) {
     erreur = String((e && e.message) || e);
   }
-  appeler('post', '/bilan', { deposes: deposes, erreur: erreur });
+  appeler('post', '/bilan', { deposes: deposes, retires: retires, erreur: erreur });
   if (erreur) throw new Error(erreur);
 }
 
@@ -77,6 +84,16 @@ function deposerDocument(dossier, doc) {
     }
   }
   return true;
+}
+
+/** Pièce d'une autorisation annulée : à la corbeille du Drive, puis plus suivie par le serveur. */
+function retirerDocument(doc) {
+  try {
+    DriveApp.getFileById(doc.fichier).setTrashed(true);
+  } catch (e) {
+    // Déjà supprimé à la main, ou droits insuffisants sur un Drive partagé : le fichier reste.
+  }
+  appeler('post', '/documents/' + encodeURIComponent(doc.reference) + '/' + doc.piece + '/retrait');
 }
 
 /** Appel au serveur des autorisations ; null si la version demandée a été remplacée (409). */

@@ -182,30 +182,48 @@ test('dépôt Drive : pièces de chaque autorisation signée déposées une fois
   assert.equal(fiche.drive.autorisation.aJour, false);
   assert.equal(fiche.drive.prefectorale.aJour, true);
 
-  // Annulation après dépôt : rien de plus à déposer ; la fiche indique le fichier resté sur le Drive.
+  // Annulation après dépôt : rien de plus à déposer, le fichier déposé est à mettre à la corbeille.
+  assert.deepEqual((await (await drive('GET', '/documents')).json()).aRetirer, []);
   await appel('POST', `/gestion/demandes/${sansVpsp}/annuler`, { motif: 'Permis suspendu' });
-  assert.deepEqual((await (await drive('GET', '/documents')).json()).documents.map((d) => d.reference), [reference]);
+  lot = await (await drive('GET', '/documents')).json();
+  assert.deepEqual(lot.documents.map((d) => d.reference), [reference]);
+  assert.deepEqual(lot.aRetirer, [{ reference: sansVpsp, piece: 'autorisation', fichier: 'fichier-drive-0003' }]);
   fiche = await (await appel('GET', `/gestion/demandes/${sansVpsp}`)).json();
   assert.equal(fiche.drive.autorisation.lien, 'https://drive.google.com/file/d/fichier-drive-0003/view');
+  assert.equal((await (await appel('GET', '/gestion/parametres')).json()).drive.aRetirer, 1);
+
+  // Accusé de mise à la corbeille : seulement pour une autorisation annulée, sans effet s'il est répété.
+  assert.equal((await drive('POST', `/documents/${reference}/autorisation/retrait`)).status, 404);
+  assert.equal((await fetch(`${base}/api/integrations/drive/documents/${sansVpsp}/autorisation/retrait`, { method: 'POST' })).status, 401);
+  assert.equal((await drive('POST', `/documents/${sansVpsp}/autorisation/retrait`)).status, 204);
+  assert.equal((await drive('POST', `/documents/${sansVpsp}/autorisation/retrait`)).status, 204);
+  assert.deepEqual((await (await drive('GET', '/documents')).json()).aRetirer, []);
+  fiche = await (await appel('GET', `/gestion/demandes/${sansVpsp}`)).json();
+  assert.equal(fiche.drive.autorisation, null);
+  assert.equal(fiche.drive.actif, true);
+  const retraits = db.prepare("SELECT action FROM journal WHERE action LIKE 'drive.retire%' AND reference = ?").all(sansVpsp);
+  assert.deepEqual(retraits.map((l) => l.action), ['drive.retire autorisation']);
 
   // Bilan du passage, visible dans les Paramètres.
   await drive('POST', '/bilan', { deposes: 3, erreur: '  Dossier introuvable  ' });
   const etat = await (await appel('GET', '/gestion/parametres')).json();
   assert.equal(etat.drive.enAttente, 1);
   assert.equal(etat.drive.passage.deposes, 3);
+  assert.equal(etat.drive.passage.retires, 0);
   assert.equal(etat.drive.passage.erreur, 'Dossier introuvable');
   assert.ok(!Number.isNaN(Date.parse(etat.drive.passage.le)));
   const journal = db.prepare("SELECT action FROM journal WHERE action LIKE 'drive.depose%' AND reference = ? ORDER BY id").all(reference);
   assert.deepEqual(journal.map((l) => l.action), ['drive.depose autorisation', 'drive.depose prefectorale']);
 
   // Purge : les dépôts partent avec la demande.
+  assert.equal(db.prepare('SELECT COUNT(*) AS n FROM depots_drive').get().n, 2);
   db.prepare('DELETE FROM demandes WHERE reference = ?').run(reference);
-  assert.equal(db.prepare('SELECT COUNT(*) AS n FROM depots_drive').get().n, 1);
+  assert.equal(db.prepare('SELECT COUNT(*) AS n FROM depots_drive').get().n, 0);
 });
 
 // ---------- Script Google Apps Script, exécuté avec des doublures des services Google ----------
 
-function executerScript({ documents, dossier = DOSSIER, pdf = () => 200 }) {
+function executerScript({ documents, aRetirer = [], dossier = DOSSIER, pdf = () => 200 }) {
   const code = readFileSync(new URL('../src/depot-drive.gs', import.meta.url), 'utf8')
     .replace("'__SERVEUR__'", '"https://autorisations.test/api/integrations/drive"')
     .replace("'__CLE__'", '"cle-test"');
@@ -215,6 +233,7 @@ function executerScript({ documents, dossier = DOSSIER, pdf = () => 200 }) {
   const corbeille = [];
   const declencheurs = [{ fonction: 'deposer' }, { fonction: 'autre' }];
   let lots = [documents, []];
+  let retraits = [aRetirer, []];
   const reponse = (code, contenu = '') => ({
     getResponseCode: () => code,
     getContentText: () => contenu,
@@ -225,8 +244,10 @@ function executerScript({ documents, dossier = DOSSIER, pdf = () => 200 }) {
       fetch(url, options) {
         const chemin = url.replace('https://autorisations.test/api/integrations/drive', '');
         appels.push({ chemin, options, corps: options.payload && JSON.parse(options.payload) });
-        if (chemin === '/documents') return reponse(200, JSON.stringify({ dossier, documents: lots.shift() ?? [] }));
-        if (chemin.endsWith('/depot') || chemin === '/bilan') return reponse(204);
+        if (chemin === '/documents') {
+          return reponse(200, JSON.stringify({ dossier, documents: lots.shift() ?? [], aRetirer: retraits.shift() ?? [] }));
+        }
+        if (chemin.endsWith('/depot') || chemin.endsWith('/retrait') || chemin === '/bilan') return reponse(204);
         return reponse(pdf(chemin));
       },
     },
@@ -305,7 +326,7 @@ test('script Apps Script : installation, dépôt, remplacement des anciennes ver
   // Homonyme et fichier d'avant la modification à la corbeille ; refus du Drive partagé ignoré.
   assert.deepEqual(s.corbeille, ['homonyme-0001', 'ancien-0001']);
   // Version remplacée entre-temps (409) : rien de créé, reprise au passage suivant.
-  assert.deepEqual(s.bilan(), { deposes: 2, erreur: null });
+  assert.deepEqual(s.bilan(), { deposes: 2, retires: 0, erreur: null });
 });
 
 test('script Apps Script : sans dossier choisi, le passage échoue et le dit au serveur', () => {
@@ -319,5 +340,23 @@ test('script Apps Script : sans dossier choisi, le passage échoue et le dit au 
   const vide = executerScript({ documents: [], dossier: null });
   vide.contexte.deposer();
   assert.deepEqual(vide.appels.map((a) => a.chemin), ['/documents', '/bilan']);
-  assert.deepEqual(vide.bilan(), { deposes: 0, erreur: null });
+  assert.deepEqual(vide.bilan(), { deposes: 0, retires: 0, erreur: null });
+});
+
+test('script Apps Script : pièces d\'une autorisation annulée mises à la corbeille, même sans dossier', () => {
+  const s = executerScript({
+    documents: [],
+    dossier: null,
+    aRetirer: [
+      { reference: 'AC-2026-0004', piece: 'autorisation', fichier: 'depose-0004' },
+      { reference: 'AC-2026-0004', piece: 'prefectorale', fichier: 'interdit' },
+    ],
+  });
+  s.contexte.deposer();
+  // Refus du Drive partagé ignoré : la pièce n'est plus suivie, le passage ne boucle pas dessus.
+  assert.deepEqual(s.corbeille, ['depose-0004']);
+  assert.deepEqual(s.appels.map((a) => a.chemin), [
+    '/documents', '/documents/AC-2026-0004/autorisation/retrait', '/documents/AC-2026-0004/prefectorale/retrait', '/documents', '/bilan',
+  ]);
+  assert.deepEqual(s.bilan(), { deposes: 0, retires: 2, erreur: null });
 });

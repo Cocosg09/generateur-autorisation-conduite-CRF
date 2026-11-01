@@ -1,6 +1,7 @@
 // Dépôt des autorisations signées sur le Google Drive de la Croix-Rouge, par le biais du RTPA :
 // un script Google Apps Script (depot-drive.gs), installé avec son compte Google Croix-Rouge, vient
-// chercher ici les documents à déposer et les range dans le dossier choisi dans les Paramètres. Aucun
+// chercher ici les documents à déposer et les range dans le dossier choisi dans les Paramètres ; il met
+// à la corbeille du Drive ceux d'une autorisation annulée depuis. Aucun
 // identifiant Google n'est confié au serveur ; le script présente une clé générée depuis l'espace
 // gestion, dont seule l'empreinte est gardée. Fermé (401) tant qu'aucune clé n'a été générée.
 import { createHash, randomBytes, timingSafeEqual } from 'node:crypto';
@@ -36,6 +37,11 @@ const A_DEPOSER = Object.entries(PIECES).map(([piece, def]) => `
   FROM demandes d LEFT JOIN depots_drive p ON p.reference = d.reference AND p.piece = '${piece}'
   WHERE d.statut = 'signee' AND ${def.presente} AND (p.version IS NULL OR p.version <> d.${def.version})`).join(' UNION ALL ');
 
+// Pièces déposées d'une autorisation annulée depuis : à mettre à la corbeille du Drive.
+const A_RETIRER = `
+  SELECT p.reference, p.piece, p.fichier FROM depots_drive p JOIN demandes d ON d.reference = p.reference
+  WHERE d.statut = 'annulee'`;
+
 const empreinte = (cle) => createHash('sha256').update(cle).digest();
 
 /** Identifiant d'un dossier Drive, à partir de son lien (…/folders/<id>, ?id=<id>) ou de l'identifiant seul. */
@@ -70,6 +76,7 @@ export function creerDepotDrive({ db, config, maintenant = () => new Date() }) {
         dossier: dossier && { id: dossier, lien: lienDossierDrive(dossier) },
         passage: lireJson('drive_passage'),
         enAttente: db.prepare(`SELECT COUNT(*) AS n FROM (${A_DEPOSER})`).get().n,
+        aRetirer: db.prepare(`SELECT COUNT(*) AS n FROM (${A_RETIRER})`).get().n,
       };
     },
 
@@ -105,7 +112,10 @@ export function creerDepotDrive({ db, config, maintenant = () => new Date() }) {
       return timingSafeEqual(empreinte(entete.slice(7).trim()), Buffer.from(attendue, 'hex'));
     },
 
-    /** Prochain lot de pièces à déposer, des plus anciennes demandes aux plus récentes. */
+    /**
+     * Prochain lot de pièces à déposer, des plus anciennes demandes aux plus récentes, et de pièces
+     * d'autorisations annulées à retirer (ignorées par les scripts générés avant l'annulation).
+     */
     aDeposer() {
       const documents = db.prepare(`SELECT * FROM (${A_DEPOSER}) ORDER BY reference, piece LIMIT ?`).all(LOT).map((l) => ({
         reference: l.reference,
@@ -115,7 +125,9 @@ export function creerDepotDrive({ db, config, maintenant = () => new Date() }) {
         sousDossier: dossierPersonne(l),
         fichierPrecedent: l.precedent,
       }));
-      return { dossier: lire('drive_dossier'), documents };
+      const aRetirer = db.prepare(`SELECT * FROM (${A_RETIRER}) ORDER BY reference, piece LIMIT ?`).all(LOT)
+        .map((l) => ({ reference: l.reference, piece: l.piece, fichier: l.fichier }));
+      return { dossier: lire('drive_dossier'), documents, aRetirer };
     },
 
     /** Contenu d'une pièce, s'il est toujours dans la version annoncée (null sinon : repris au lot suivant). */
@@ -141,11 +153,21 @@ export function creerDepotDrive({ db, config, maintenant = () => new Date() }) {
       journaliser(db, 'script drive', `drive.depose ${piece}`, reference);
     },
 
+    /** Pièce d'une autorisation annulée mise à la corbeille par le script : elle n'est plus suivie. */
+    enregistrerRetrait(reference, piece) {
+      const annulee = db.prepare("SELECT 1 FROM demandes WHERE reference = ? AND statut = 'annulee'").get(reference);
+      if (!annulee) throw new DemandeIntrouvable(reference);
+      const { changes } = db.prepare('DELETE FROM depots_drive WHERE reference = ? AND piece = ?').run(reference, piece);
+      if (changes) journaliser(db, 'script drive', `drive.retire ${piece}`, reference);
+    },
+
     /** Compte rendu de fin de passage du script : visible dans les Paramètres. */
     bilan(corps) {
-      const deposes = Number.isInteger(corps?.deposes) && corps.deposes >= 0 ? corps.deposes : 0;
+      const nombre = (n) => (Number.isInteger(n) && n >= 0 ? n : 0);
       const erreur = typeof corps?.erreur === 'string' && corps.erreur.trim() ? corps.erreur.trim().slice(0, 500) : null;
-      ecrire('drive_passage', JSON.stringify({ le: maintenant().toISOString(), deposes, erreur }));
+      ecrire('drive_passage', JSON.stringify({
+        le: maintenant().toISOString(), deposes: nombre(corps?.deposes), retires: nombre(corps?.retires), erreur,
+      }));
     },
 
     /** Dépôts d'une autorisation, pour sa fiche dans l'espace gestion. */
@@ -186,6 +208,10 @@ export function creerDepotDrive({ db, config, maintenant = () => new Date() }) {
       });
       routeur.post('/documents/:reference/:piece/depot', (req, res) => {
         depot.enregistrerDepot(req.params.reference, req.params.piece, req.body);
+        res.status(204).end();
+      });
+      routeur.post('/documents/:reference/:piece/retrait', (req, res) => {
+        depot.enregistrerRetrait(req.params.reference, req.params.piece);
         res.status(204).end();
       });
       routeur.post('/bilan', (req, res) => {
