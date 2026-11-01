@@ -190,6 +190,54 @@ test('refus avec motif, e-mail au bénévole', async () => {
   assert.ok(envoyes[0].texte.includes('Permis à vérifier'));
 });
 
+test('une demande refusée peut être rouverte puis signée', async () => {
+  const { reference } = await (await poster('/api/demandes', DEMANDE)).json();
+  const { cookie } = await seConnecter();
+  const avecSession = { Cookie: cookie };
+
+  // Rouvrir ou supprimer n'est possible que sur une demande refusée.
+  assert.equal((await poster(`/api/gestion/demandes/${reference}/rouvrir`, {}, avecSession)).status, 409);
+  assert.equal((await fetch(`${base}/api/gestion/demandes/${reference}`, { method: 'DELETE', headers: { ...ORIGINE, ...avecSession } })).status, 409);
+
+  await poster(`/api/gestion/demandes/${reference}/refuser`, { motif: 'Permis à vérifier' }, avecSession);
+  envoyes = [];
+  const rouverte = await poster(`/api/gestion/demandes/${reference}/rouvrir`, {}, avecSession);
+  assert.equal(rouverte.status, 200);
+  assert.deepEqual(await rouverte.json(), { reference, statut: 'en_attente' });
+  assert.equal(envoyes.length, 0, 'pas d\'e-mail à la réouverture');
+
+  const detail = await (await fetch(`${base}/api/gestion/demandes/${reference}`, { headers: avecSession })).json();
+  assert.equal(detail.demande.statut, 'en_attente');
+  assert.equal(detail.demande.motifRefus, null);
+  assert.equal(detail.demande.rtpa, null);
+  assert.equal(detail.demande.traiteLe, null);
+  const liste = await (await fetch(`${base}/api/gestion/demandes?statut=en_attente`, { headers: avecSession })).json();
+  assert.deepEqual(liste.map((d) => d.reference), [reference]);
+
+  const signe = await poster(`/api/gestion/demandes/${reference}/signer`, { vehicules: ['VL'], signature: SIGNATURE }, avecSession);
+  assert.equal(signe.status, 200);
+  const journal = db.prepare('SELECT action FROM journal WHERE reference = ? ORDER BY id').all(reference).map((l) => l.action);
+  assert.deepEqual(journal, ['demande.deposee', 'demande.refusee', 'demande.rouverte', 'demande.signee']);
+});
+
+test('une demande refusée peut être supprimée, le journal en garde la trace', async () => {
+  const { reference } = await (await poster('/api/demandes', DEMANDE)).json();
+  const { cookie } = await seConnecter();
+  const avecSession = { Cookie: cookie };
+  await poster(`/api/gestion/demandes/${reference}/refuser`, { motif: 'Doublon' }, avecSession);
+
+  // Sans session ou depuis une autre origine : refusé, la demande reste.
+  assert.equal((await fetch(`${base}/api/gestion/demandes/${reference}`, { method: 'DELETE', headers: ORIGINE })).status, 401);
+  assert.equal((await fetch(`${base}/api/gestion/demandes/${reference}`, { method: 'DELETE', headers: { ...avecSession, Origin: 'http://ailleurs.test' } })).status, 403);
+
+  const supprimee = await fetch(`${base}/api/gestion/demandes/${reference}`, { method: 'DELETE', headers: { ...ORIGINE, ...avecSession } });
+  assert.equal(supprimee.status, 200);
+  assert.equal((await fetch(`${base}/api/gestion/demandes/${reference}`, { headers: avecSession })).status, 404);
+  assert.equal((await fetch(`${base}/api/gestion/demandes/${reference}`, { method: 'DELETE', headers: { ...ORIGINE, ...avecSession } })).status, 404);
+  const journal = db.prepare('SELECT action FROM journal WHERE reference = ? ORDER BY id').all(reference).map((l) => l.action);
+  assert.deepEqual(journal, ['demande.deposee', 'demande.refusee', 'demande.supprimee']);
+});
+
 test('le code du serveur et la base ne sont pas servis', async () => {
   for (const chemin of ['/server/src/config.js', '/server/package.json', '/.git/config', '/infra/docker-compose.yml']) {
     assert.equal((await fetch(base + chemin)).status, 404, chemin);

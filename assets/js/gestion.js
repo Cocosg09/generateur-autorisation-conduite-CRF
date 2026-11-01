@@ -1,4 +1,5 @@
-// Espace gestion du RTPA : liste des demandes, signature ou refus, modification d'une autorisation signée.
+// Espace gestion du RTPA : liste des demandes, signature ou refus, modification d'une autorisation
+// signée, réouverture ou suppression d'une demande refusée.
 import { VEHICULES, libelleVehicule, SIG_W, SIG_H } from './pdf.js';
 import { PadSignature } from './signature.js';
 import {
@@ -250,12 +251,15 @@ async function ouvrirDemande(reference) {
     preparerSignature(d.vehicules, false);
   } else {
     $('#form-signature').hidden = true;
-    $('#texte-traite').textContent = d.statut === 'signee'
+    const signee = d.statut === 'signee';
+    $('#texte-traite').textContent = signee
       ? `Autorisation signée et envoyée par e-mail à ${d.email}.`
-      : `Demande refusée ; le bénévole en a été informé par e-mail.`;
-    $('#btn-pdf').hidden = d.statut !== 'signee';
+      : `Demande refusée ; le bénévole en a été informé par e-mail. Vous pouvez la rouvrir pour la traiter à nouveau, ou la supprimer définitivement.`;
+    $('#btn-pdf').hidden = !signee;
     $('#btn-pdf').href = `/api/gestion/demandes/${encodeURIComponent(d.reference)}/pdf`;
-    $('#btn-modifier').hidden = d.statut !== 'signee';
+    $('#btn-modifier').hidden = !signee;
+    $('#btn-rouvrir').hidden = signee;
+    $('#btn-supprimer').hidden = signee;
   }
   window.scrollTo({ top: 0 });
 }
@@ -349,6 +353,30 @@ $('#form-refus').addEventListener('submit', async (ev) => {
     form.reset();
     notifier(`Demande ${reference} refusée.`);
     await ouvrirDemande(reference);
+  } catch (e) {
+    gererErreur(e);
+  }
+});
+
+$('#btn-rouvrir').addEventListener('click', async () => {
+  const reference = courante.demande.reference;
+  if (!window.confirm(`Rouvrir la demande ${reference} ? Elle repassera en attente, sans e-mail au bénévole.`)) return;
+  try {
+    await api(`/api/gestion/demandes/${encodeURIComponent(reference)}/rouvrir`, { methode: 'POST' });
+    notifier(`Demande ${reference} rouverte : elle est de nouveau en attente.`);
+    await ouvrirDemande(reference);
+  } catch (e) {
+    gererErreur(e);
+  }
+});
+
+$('#btn-supprimer').addEventListener('click', async () => {
+  const { reference, prenom, nom } = courante.demande;
+  if (!window.confirm(`Supprimer définitivement la demande ${reference} de ${prenom} ${nom} ? Cette action est irréversible.`)) return;
+  try {
+    await api(`/api/gestion/demandes/${encodeURIComponent(reference)}`, { methode: 'DELETE' });
+    notifier(`Demande ${reference} supprimée.`);
+    location.hash = '#/';
   } catch (e) {
     gererErreur(e);
   }

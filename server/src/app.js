@@ -2,7 +2,7 @@
 import express from 'express';
 import { join } from 'node:path';
 import { creerAuth } from './auth.js';
-import { creerServiceDemandes, DemandeDejaTraitee, DemandeIntrouvable, DemandeNonSignee, ErreurValidation } from './demandes.js';
+import { creerServiceDemandes, DemandeDejaTraitee, DemandeIntrouvable, DemandeNonRefusee, DemandeNonSignee, ErreurValidation } from './demandes.js';
 import { creerParametres, ErreurParametre } from './parametres.js';
 
 const CSP = [
@@ -138,6 +138,12 @@ export function creerApp({ db, config, messagerie, genererPdf, fetch }) {
       suivant(e);
     }
   });
+  gestion.post('/demandes/:reference/rouvrir', (req, res) => {
+    res.json(demandes.rouvrir(req.params.reference, req.compte));
+  });
+  gestion.delete('/demandes/:reference', (req, res) => {
+    res.json(demandes.supprimer(req.params.reference, req.compte));
+  });
   // Paramètres : administrateurs et boîte du RTPA.
   const etatParametres = () => ({
     gestionnaires: parametres.gestionnaires(),
@@ -186,6 +192,7 @@ export function creerApp({ db, config, messagerie, genererPdf, fetch }) {
     if (err instanceof DemandeIntrouvable) return res.status(404).json({ erreur: 'Demande introuvable' });
     if (err instanceof DemandeDejaTraitee) return res.status(409).json({ erreur: 'Demande déjà traitée' });
     if (err instanceof DemandeNonSignee) return res.status(409).json({ erreur: 'Demande non signée' });
+    if (err instanceof DemandeNonRefusee) return res.status(409).json({ erreur: 'Demande non refusée' });
     if (err.type === 'entity.parse.failed' || err.type === 'entity.too.large') {
       return res.status(400).json({ erreur: 'Requête invalide' });
     }

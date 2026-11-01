@@ -6,6 +6,7 @@ export class ErreurValidation extends Error {}
 export class DemandeIntrouvable extends Error {}
 export class DemandeDejaTraitee extends Error {}
 export class DemandeNonSignee extends Error {}
+export class DemandeNonRefusee extends Error {}
 
 const CODES = new Set(VEHICULES.map((v) => v.code));
 const EMAIL = /^[^\s@<>"',;]+@[^\s@<>"',;]+\.[^\s@<>"',;]+$/;
@@ -265,6 +266,31 @@ export function creerServiceDemandes({ db, config, parametres, messagerie, gener
         ].join('\n'),
       }).catch(() => {});
       return { reference, statut: 'refusee' };
+    },
+
+    /** Une demande refusée repasse en attente : le RTPA pourra la signer (ou la refuser à nouveau). */
+    rouvrir(reference, compte) {
+      const resultat = db.prepare(
+        `UPDATE demandes SET statut = 'en_attente', rtpa = NULL, motif_refus = NULL, traite_le = NULL
+         WHERE reference = ? AND statut = 'refusee'`,
+      ).run(reference);
+      if (resultat.changes !== 1) {
+        service.obtenir(reference); // DemandeIntrouvable si elle n'existe pas
+        throw new DemandeNonRefusee(reference);
+      }
+      journaliser(db, `rtpa ${compte.email}`, 'demande.rouverte', reference);
+      return { reference, statut: 'en_attente' };
+    },
+
+    /** Suppression définitive d'une demande refusée ; seul le journal en garde la trace. */
+    supprimer(reference, compte) {
+      const resultat = db.prepare(`DELETE FROM demandes WHERE reference = ? AND statut = 'refusee'`).run(reference);
+      if (resultat.changes !== 1) {
+        service.obtenir(reference);
+        throw new DemandeNonRefusee(reference);
+      }
+      journaliser(db, `rtpa ${compte.email}`, 'demande.supprimee', reference);
+      return { reference };
     },
 
     /** Données de prévisualisation (PDF généré par le navigateur du RTPA). */

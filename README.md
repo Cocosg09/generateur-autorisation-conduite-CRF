@@ -21,6 +21,9 @@ Les bénévoles remplissent et signent en ligne leur **Charte du conducteur / Au
 5. **Sur une autorisation déjà signée**, le RTPA peut **modifier les véhicules autorisés** : il signe une
    nouvelle version, qui remplace le PDF conservé et est renvoyée au bénévole (copie au RTPA). La demande
    initiale du bénévole reste visible, et l'action est inscrite au journal (`demande.modifiee`).
+6. **Sur une demande refusée**, le RTPA peut la **rouvrir** (elle repasse en attente, sans e-mail, pour être
+   signée ou refusée à nouveau) ou la **supprimer** définitivement ; seul le journal en garde la trace
+   (`demande.rouverte`, `demande.supprimee`).
 
 ### Accès et données personnelles
 
