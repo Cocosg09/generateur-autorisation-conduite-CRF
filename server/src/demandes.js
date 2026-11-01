@@ -164,6 +164,29 @@ export function creerServiceDemandes({ db, config, parametres, messagerie, gener
       });
     },
 
+    /**
+     * Autorisations actuellement signées, pour Stock Secours (CONTRAT_API_STOCK_SECOURS.md) :
+     * véhicules autorisés par le RTPA, sans les données du permis ni les signatures.
+     */
+    autorisationsSignees() {
+      return db
+        .prepare("SELECT * FROM demandes WHERE statut = 'signee' ORDER BY traite_le DESC, reference DESC")
+        .all()
+        .map((l) => {
+          const d = lire(l);
+          return {
+            reference: d.reference,
+            annee: d.annee,
+            nom: d.nom,
+            prenom: d.prenom,
+            email: d.email,
+            vehicules: d.vehiculesAutorises,
+            signeeLe: d.traiteLe,
+            rtpa: d.rtpa?.nom ?? null,
+          };
+        });
+    },
+
     obtenir(reference) {
       const d = lire(db.prepare('SELECT * FROM demandes WHERE reference = ?').get(reference));
       if (!d) throw new DemandeIntrouvable(reference);

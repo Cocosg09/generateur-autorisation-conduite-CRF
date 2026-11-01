@@ -32,6 +32,7 @@ beforeEach(async () => {
     GESTION_DPS_TOKEN: 'jeton-service',
     GESTION_DPS_URL_INTERFACE: 'https://dps.example.org',
     RTPA_EMAIL: 'boite-rtpa@example.org',
+    STOCK_SECOURS_TOKEN: 'jeton-stock-secours',
   });
   envoyes = [];
   echanges = [];
@@ -315,4 +316,68 @@ test('GESTIONNAIRES redonne l’accès à chaque démarrage (secours)', async ()
   // L'ancien compte de configuration se retire désormais depuis le site.
   p.retirerGestionnaire('a@example.org', { email: 'b@example.org' });
   assert.deepEqual(p.gestionnaires().map((g) => g.email), ['b@example.org']);
+});
+
+const STOCK = { Authorization: 'Bearer jeton-stock-secours' };
+const lireAutorisations = () => fetch(`${base}/api/integrations/stock-secours/autorisations`, { headers: STOCK });
+
+test('interface Stock Secours : fermée sans jeton, sans écriture', async () => {
+  assert.equal((await fetch(`${base}/api/integrations/stock-secours/autorisations`)).status, 401);
+  const faux = await fetch(`${base}/api/integrations/stock-secours/autorisations`, { headers: { Authorization: 'Bearer faux' } });
+  assert.equal(faux.status, 401);
+  assert.equal((await fetch(`${base}/api/integrations/stock-secours/autre`, { headers: STOCK })).status, 404);
+  const ecriture = await fetch(`${base}/api/integrations/stock-secours/autorisations`, { method: 'POST', headers: { ...STOCK, ...ORIGINE }, body: '{}' });
+  assert.equal(ecriture.status, 404);
+  // Sans STOCK_SECOURS_TOKEN, l'interface n'existe pas, même avec un jeton vide.
+  const sansJeton = creerApp({
+    db: ouvrirBase(':memory:'), config: lireConfig({ DOSSIER_SITE: racine }), genererPdf, fetch: async () => {},
+    messagerie: { envoyer: async () => {} },
+  });
+  const s2 = await new Promise((ok) => { const srv = sansJeton.app.listen(0, () => ok(srv)); });
+  try {
+    const r = await fetch(`http://127.0.0.1:${s2.address().port}/api/integrations/stock-secours/autorisations`, { headers: { Authorization: 'Bearer ' } });
+    assert.equal(r.status, 401);
+  } finally {
+    await new Promise((ok) => s2.close(ok));
+  }
+});
+
+test('interface Stock Secours : seules les autorisations signées, véhicules du RTPA, sans permis ni signature', async () => {
+  const { reference } = await (await poster('/api/demandes', DEMANDE)).json();
+  const { reference: refusee } = await (await poster('/api/demandes', { ...DEMANDE, email: 'autre@example.org' })).json();
+  const { reference: attente } = await (await poster('/api/demandes', DEMANDE)).json();
+  const { cookie } = await seConnecter();
+  const avecSession = { Cookie: cookie };
+
+  // Rien tant que rien n'est signé.
+  let corps = await (await lireAutorisations()).json();
+  assert.deepEqual(corps.autorisations, []);
+  assert.deepEqual(corps.types.map((t) => t.code), ['VL', 'VPSP', 'VLTT', 'VLTC', 'LOG', 'REM', 'QUAD']);
+  assert.equal(corps.types[1].libelle, 'Véhicule de premiers secours à personne (VPSP)');
+
+  await poster(`/api/gestion/demandes/${reference}/signer`, { vehicules: ['VL'], signature: SIGNATURE }, avecSession);
+  await poster(`/api/gestion/demandes/${refusee}/refuser`, { motif: 'Non' }, avecSession);
+  const r = await lireAutorisations();
+  assert.equal(r.status, 200);
+  assert.equal(r.headers.get('cache-control'), 'no-store');
+  corps = await r.json();
+  assert.equal(corps.autorisations.length, 1);
+  const [a] = corps.autorisations;
+  assert.deepEqual(a, {
+    reference, annee: new Date().getFullYear(), nom: 'Exemple', prenom: 'Camille', email: 'camille@example.org',
+    vehicules: ['VL'], signeeLe: a.signeeLe, rtpa: 'Dominique TEST',
+  });
+  assert.ok(!Number.isNaN(Date.parse(a.signeeLe)));
+  assert.doesNotMatch(JSON.stringify(corps), /123456789012|Foix|permis|signature/i);
+  assert.ok(![attente, refusee].includes(a.reference));
+
+  // Modification par le RTPA : la liste suit ; la plus récente d'abord.
+  await poster(`/api/gestion/demandes/${attente}/signer`, { vehicules: ['VPSP', 'LOG'], signature: SIGNATURE }, avecSession);
+  await poster(`/api/gestion/demandes/${reference}/modifier`, { vehicules: ['VL', 'REM'], signature: SIGNATURE }, avecSession);
+  corps = await (await lireAutorisations()).json();
+  assert.deepEqual(corps.autorisations.map((x) => [x.reference, x.vehicules]), [[reference, ['VL', 'REM']], [attente, ['VPSP', 'LOG']]]);
+
+  // Chaque appel est journalisé.
+  const { n } = db.prepare("SELECT COUNT(*) AS n FROM journal WHERE action = 'integration.stock_secours' AND acteur = 'stock-secours'").get();
+  assert.equal(n, 3);
 });

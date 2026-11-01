@@ -40,6 +40,10 @@ export function lireConfig(env = process.env) {
       // Adresse publique de l'interface web (page de connexion), par ex. https://dps.corentinsg.ovh
       interface: texte(env, 'GESTION_DPS_URL_INTERFACE')?.replace(/\/+$/, ''),
     },
+    // Interface de lecture pour Stock Secours (CONTRAT_API_STOCK_SECOURS.md) : fermée sans jeton.
+    stockSecours: {
+      token: texte(env, 'STOCK_SECOURS_TOKEN'),
+    },
     smtp: {
       host: texte(env, 'SMTP_HOST'),
       port: entier(env, 'SMTP_PORT', 587),

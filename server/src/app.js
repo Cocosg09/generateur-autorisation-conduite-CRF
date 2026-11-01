@@ -3,6 +3,7 @@ import express from 'express';
 import { join } from 'node:path';
 import { creerAuth } from './auth.js';
 import { creerServiceDemandes, DemandeDejaTraitee, DemandeIntrouvable, DemandeNonRefusee, DemandeNonSignee, ErreurValidation } from './demandes.js';
+import { creerIntegrationStockSecours } from './integrations.js';
 import { creerParametres, ErreurParametre } from './parametres.js';
 
 const CSP = [
@@ -164,6 +165,8 @@ export function creerApp({ db, config, messagerie, genererPdf, fetch }) {
     res.json(etatParametres());
   });
   app.use('/api/gestion', gestion);
+  // Lecture des autorisations signées par Stock Secours (jeton de service, 100 appels par minute).
+  app.use('/api/integrations/stock-secours', limiteur(100, 60_000), creerIntegrationStockSecours({ db, config, demandes }));
   app.use('/api', (req, res) => res.status(404).json({ erreur: 'Introuvable' }));
 
   // --- Site statique : uniquement les fichiers publics, jamais le code du serveur ---

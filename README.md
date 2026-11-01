@@ -38,6 +38,16 @@ Les bénévoles remplissent et signent en ligne leur **Charte du conducteur / Au
 - Les demandes (identité, permis, signatures, PDF) sont gardées `RETENTION_JOURS` jours (400 par défaut,
   environ 13 mois), puis supprimées automatiquement. Chaque action est inscrite dans un journal en ajout seul.
 
+### Lien avec Stock Secours
+
+Le logiciel de logistique **Stock Secours** lit les autorisations **signées** (e-mail du bénévole, véhicules
+autorisés par le RTPA, date de signature) pour ne proposer, dans son carnet de bord, que les conducteurs
+habilités pour chaque type de véhicule. Interface de serveur à serveur
+`GET /api/integrations/stock-secours/autorisations`, protégée par le jeton `STOCK_SECOURS_TOKEN`
+(`AUTORISATION_CONDUITE_TOKEN` côté Stock Secours), fermée tant qu'il n'est pas renseigné, 100 appels par
+minute, chaque appel au journal. Une demande en attente, refusée, supprimée ou purgée n'y figure pas :
+Stock Secours retire alors l'habilitation. Contrat : [`CONTRAT_API_STOCK_SECOURS.md`](CONTRAT_API_STOCK_SECOURS.md).
+
 ## Architecture
 
 | Dossier | Rôle |
@@ -49,7 +59,8 @@ Les bénévoles remplissent et signent en ligne leur **Charte du conducteur / Au
 | `tests/`, `server/test/` | Tests (génération du PDF, API) |
 
 Principales routes : `POST /api/demandes` (public, limité à 10 dépôts par heure et par adresse),
-`/api/auth/*` (connexion), `/api/gestion/*` (session du RTPA requise).
+`/api/auth/*` (connexion), `/api/gestion/*` (session du RTPA requise),
+`/api/integrations/stock-secours/*` (lecture par Stock Secours, jeton de service).
 
 ## Développement
 
@@ -84,6 +95,9 @@ Sur le VPS :
 - Côté Gestion des DPS (`/opt/gestion-dps/backend/.env`) : `INTEGRATION_AUTORISATION_CONDUITE_TOKEN`
   (même valeur que `GESTION_DPS_TOKEN` ici) et
   `AUTORISATION_CONDUITE_RETOURS=https://autorisation-conduite.croix-rouge-ariege.fr/api/auth/retour`.
+- Côté Stock Secours (`backend/.env`) : `AUTORISATION_CONDUITE_TOKEN` (même valeur que
+  `STOCK_SECOURS_TOKEN` ici) et
+  `AUTORISATION_CONDUITE_URL=http://autorisation_conduite_web:80/api/integrations/stock-secours`.
 
 Secrets GitHub : `VPS_HOST`, `VPS_PORT`, `VPS_USER`, `VPS_SSH_KEY`, `VPS_KNOWN_HOSTS`.
 
