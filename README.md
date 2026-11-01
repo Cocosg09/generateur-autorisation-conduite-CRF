@@ -61,7 +61,8 @@ Stock Secours retire alors l'habilitation. Contrat : [`CONTRAT_API_STOCK_SECOURS
 Les autorisations signées (PDF) et les autorisations préfectorales jointes pour le VPSP sont déposées
 automatiquement dans un dossier du Google Drive de la Croix-Rouge, **par le biais du RTPA** : un script
 Google Apps Script, installé une fois avec son compte Google Croix-Rouge, vient les chercher ici tous les
-quarts d'heure et les range dans le dossier choisi. Aucun projet Google Cloud, aucune validation de la DSI
+quarts d'heure et les range dans le dossier choisi, avec un sous-dossier par bénévole (« NOM Prénom ») qui
+réunit son autorisation signée et son autorisation préfectorale. Aucun projet Google Cloud, aucune validation de la DSI
 et aucun identifiant Google ne sont nécessaires sur ce serveur ; les fichiers appartiennent au compte du RTPA.
 
 1. Dans **Paramètres → Dépôt sur le Google Drive**, le RTPA colle le lien du dossier, puis clique sur

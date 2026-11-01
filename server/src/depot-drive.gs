@@ -9,8 +9,9 @@
  *
  * Le script passe ensuite tous les quarts d'heure : chaque autorisation signée (en PDF), et chaque
  * nouvelle version après une modification, est déposée dans le dossier choisi dans les Paramètres de
- * l'espace gestion, avec l'autorisation préfectorale jointe par le bénévole pour le VPSP. Une nouvelle
- * version remplace la précédente, qui part à la corbeille du Drive.
+ * l'espace gestion, avec l'autorisation préfectorale jointe par le bénévole pour le VPSP : chaque
+ * bénévole a son sous-dossier « NOM Prénom », créé au besoin. Une nouvelle version remplace la
+ * précédente, qui part à la corbeille du Drive.
  * Si un passage échoue, Google prévient le propriétaire du script par e-mail.
  *
  * Code généré par l'espace gestion : la clé ci-dessous est personnelle, ne pas la partager.
@@ -39,7 +40,7 @@ function deposer() {
       if (!lot.dossier) throw new Error("Aucun dossier Google Drive n'est choisi dans les Paramètres de l'espace gestion.");
       const dossier = DriveApp.getFolderById(lot.dossier);
       for (const doc of lot.documents) {
-        if (deposerDocument(dossier, doc)) deposes += 1;
+        if (deposerDocument(sousDossier(dossier, doc.sousDossier), doc)) deposes += 1;
         if (Date.now() - debut >= DUREE_MAX_MS) break;
       }
     }
@@ -48,6 +49,12 @@ function deposer() {
   }
   appeler('post', '/bilan', { deposes: deposes, erreur: erreur });
   if (erreur) throw new Error(erreur);
+}
+
+/** Sous-dossier du bénévole, créé au premier document déposé. */
+function sousDossier(dossier, nom) {
+  const existants = dossier.getFoldersByName(nom);
+  return existants.hasNext() ? existants.next() : dossier.createFolder(nom);
 }
 
 /** Dépose une pièce ; ses copies précédentes (même nom dans le dossier, ou fichier d'avant la modification) partent à la corbeille. */

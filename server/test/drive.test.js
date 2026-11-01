@@ -138,9 +138,9 @@ test('dépôt Drive : pièces de chaque autorisation signée déposées une fois
   const { creeLe } = (await (await appel('GET', `/gestion/demandes/${reference}`)).json()).demande;
   const [signee, prefectorale, autre] = lot.documents;
   assert.deepEqual(lot.documents, [
-    { reference, piece: 'autorisation', version: signee.version, nom: `Autorisation_conduite_${reference}_EXEMPLE_Camille.pdf`, fichierPrecedent: null },
-    { reference, piece: 'prefectorale', version: creeLe, nom: `Autorisation_prefectorale_${reference}_EXEMPLE_Camille.pdf`, fichierPrecedent: null },
-    { reference: sansVpsp, piece: 'autorisation', version: autre.version, nom: `Autorisation_conduite_${sansVpsp}_EXEMPLE_Camille.pdf`, fichierPrecedent: null },
+    { reference, piece: 'autorisation', version: signee.version, nom: `Autorisation_conduite_${reference}_EXEMPLE_Camille.pdf`, sousDossier: 'EXEMPLE Camille', fichierPrecedent: null },
+    { reference, piece: 'prefectorale', version: creeLe, nom: `Autorisation_prefectorale_${reference}_EXEMPLE_Camille.pdf`, sousDossier: 'EXEMPLE Camille', fichierPrecedent: null },
+    { reference: sansVpsp, piece: 'autorisation', version: autre.version, nom: `Autorisation_conduite_${sansVpsp}_EXEMPLE_Camille.pdf`, sousDossier: 'EXEMPLE Camille', fichierPrecedent: null },
   ]);
   assert.ok(!Number.isNaN(Date.parse(signee.version)));
 
@@ -211,6 +211,7 @@ function executerScript({ documents, dossier = DOSSIER, pdf = () => 200 }) {
     .replace("'__CLE__'", '"cle-test"');
   const appels = [];
   const crees = [];
+  const dossiersCrees = [];
   const corbeille = [];
   const declencheurs = [{ fonction: 'deposer' }, { fonction: 'autre' }];
   let lots = [documents, []];
@@ -232,16 +233,26 @@ function executerScript({ documents, dossier = DOSSIER, pdf = () => 200 }) {
     DriveApp: {
       getFolderById(id) {
         assert.equal(id, DOSSIER);
+        // Le dossier « DUPONT Alex » existe déjà ; les autres sont créés par le script.
+        const sousDossiers = new Map([['DUPONT Alex', dossierDrive('DUPONT Alex')]]);
+        const iterateur = (elements) => ({ hasNext: () => elements.length > 0, next: () => elements.shift() });
         return {
-          getFilesByName: (nom) => {
-            const ids = nom.includes('0001') ? ['homonyme-0001'] : [];
-            return { hasNext: () => ids.length > 0, next: () => ({ getId: () => ids.shift() }) };
-          },
-          createFile: (blob) => {
-            crees.push(blob.nom);
-            return { getId: () => `nouveau-${crees.length}` };
+          getFoldersByName: (nom) => iterateur(sousDossiers.has(nom) ? [sousDossiers.get(nom)] : []),
+          createFolder: (nom) => {
+            dossiersCrees.push(nom);
+            sousDossiers.set(nom, dossierDrive(nom));
+            return sousDossiers.get(nom);
           },
         };
+        function dossierDrive(nomDossier) {
+          return {
+            getFilesByName: (nom) => iterateur(nom.includes('0001') ? [{ getId: () => 'homonyme-0001' }] : []),
+            createFile: (blob) => {
+              crees.push(`${nomDossier}/${blob.nom}`);
+              return { getId: () => `nouveau-${crees.length}` };
+            },
+          };
+        }
       },
       getFileById: (id) => ({
         setTrashed() {
@@ -260,20 +271,21 @@ function executerScript({ documents, dossier = DOSSIER, pdf = () => 200 }) {
   };
   const contexte = vm.createContext(services);
   vm.runInContext(code, contexte);
-  return { contexte, appels, crees, corbeille, declencheurs, bilan: () => appels.at(-1).corps };
+  return { contexte, appels, crees, dossiersCrees, corbeille, declencheurs, bilan: () => appels.at(-1).corps };
 }
 
-const DOC = (numero, precedent = null) => ({
+const DOC = (numero, precedent = null, sousDossier = 'DUPONT Alex') => ({
   reference: `AC-2026-${numero}`,
   piece: 'autorisation',
   version: '2026-11-01T10:00:00.000Z',
   nom: `Autorisation_conduite_AC-2026-${numero}_X_Y.pdf`,
+  sousDossier,
   fichierPrecedent: precedent,
 });
 
 test('script Apps Script : installation, dépôt, remplacement des anciennes versions, bilan', () => {
   const s = executerScript({
-    documents: [DOC('0001', 'ancien-0001'), DOC('0002', 'interdit'), DOC('0003')],
+    documents: [DOC('0001', 'ancien-0001'), DOC('0002', 'interdit', 'MARTIN Lou'), DOC('0003')],
     pdf: (chemin) => (chemin.includes('0003') ? 409 : 200),
   });
   s.contexte.installer();
@@ -281,7 +293,9 @@ test('script Apps Script : installation, dépôt, remplacement des anciennes ver
   // Un seul déclencheur « deposer », tous les quarts d'heure ; les autres sont laissés.
   assert.deepEqual(s.declencheurs.map((d) => [d.fonction, d.minutes]), [['autre', undefined], ['deposer', 15]]);
   assert.ok(s.appels.every((a) => a.options.headers.Authorization === 'Bearer cle-test'));
-  assert.deepEqual(s.crees, [DOC('0001').nom, DOC('0002').nom]);
+  // Chaque pièce dans le dossier de son bénévole, créé s'il n'existe pas encore.
+  assert.deepEqual(s.crees, [`DUPONT Alex/${DOC('0001').nom}`, `MARTIN Lou/${DOC('0002').nom}`]);
+  assert.deepEqual(s.dossiersCrees, ['MARTIN Lou']);
   const depots = s.appels.filter((a) => a.chemin.endsWith('/depot'));
   assert.deepEqual(depots.map((a) => [a.chemin, a.corps]), [
     ['/documents/AC-2026-0001/autorisation/depot', { version: DOC('0001').version, fichier: 'nouveau-1' }],
