@@ -52,6 +52,29 @@ habilités pour chaque type de véhicule. Interface de serveur à serveur
 minute, chaque appel au journal. Une demande en attente, refusée, supprimée ou purgée n'y figure pas :
 Stock Secours retire alors l'habilitation. Contrat : [`CONTRAT_API_STOCK_SECOURS.md`](CONTRAT_API_STOCK_SECOURS.md).
 
+### Dépôt sur le Google Drive de la Croix-Rouge
+
+Les autorisations signées (PDF) et les autorisations préfectorales jointes pour le VPSP sont déposées
+automatiquement dans un dossier du Google Drive de la Croix-Rouge, **par le biais du RTPA** : un script
+Google Apps Script, installé une fois avec son compte Google Croix-Rouge, vient les chercher ici tous les
+quarts d'heure et les range dans le dossier choisi. Aucun projet Google Cloud, aucune validation de la DSI
+et aucun identifiant Google ne sont nécessaires sur ce serveur ; les fichiers appartiennent au compte du RTPA.
+
+1. Dans **Paramètres → Dépôt sur le Google Drive**, le RTPA colle le lien du dossier, puis clique sur
+   **Générer le script** : le code affiché contient l'adresse du serveur et une clé personnelle, montrée une
+   seule fois (seule son empreinte est gardée).
+2. Sur [script.google.com](https://script.google.com/home), avec son compte Croix-Rouge : *Nouveau projet*,
+   coller le code, enregistrer, puis exécuter la fonction `installer` et accepter les autorisations.
+3. Les autorisations déjà signées sont déposées au premier passage ; ensuite, chaque signature et chaque
+   modification (la nouvelle version remplace l'ancienne, mise à la corbeille du Drive). La fiche d'une
+   demande indique si ses pièces sont déposées, avec un lien vers le fichier ; Paramètres montre le dernier
+   passage du script et ses erreurs. Google prévient aussi le RTPA par e-mail si un passage échoue.
+
+Générer un nouveau script révoque l'ancien ; **Arrêter le dépôt** ferme l'interface (les fichiers restent
+sur le Drive, au-delà de la durée de conservation de ce site). Interface du script :
+`/api/integrations/drive/*` (clé en `Bearer`, 300 appels par minute), modèle du script :
+[`server/src/depot-drive.gs`](server/src/depot-drive.gs).
+
 ## Architecture
 
 | Dossier | Rôle |
@@ -65,7 +88,8 @@ Stock Secours retire alors l'habilitation. Contrat : [`CONTRAT_API_STOCK_SECOURS
 Principales routes : `POST /api/demandes` (public, limité à 10 dépôts par heure et par adresse, 8 Mo au plus
 avec l'autorisation préfectorale),
 `/api/auth/*` (connexion), `/api/gestion/*` (session du RTPA requise),
-`/api/integrations/stock-secours/*` (lecture par Stock Secours, jeton de service).
+`/api/integrations/stock-secours/*` (lecture par Stock Secours, jeton de service),
+`/api/integrations/drive/*` (script de dépôt sur le Google Drive, clé générée dans Paramètres).
 
 ## Développement
 

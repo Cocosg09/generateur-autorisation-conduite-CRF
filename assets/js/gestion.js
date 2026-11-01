@@ -1,5 +1,5 @@
 // Espace gestion du RTPA : liste des demandes, signature ou refus, modification d'une autorisation
-// signée, réouverture ou suppression d'une demande refusée.
+// signée, réouverture ou suppression d'une demande refusée, paramètres (dont le dépôt sur le Drive).
 import { VEHICULES, libelleVehicule, SIG_W, SIG_H } from './pdf.js';
 import { PadSignature } from './signature.js';
 import {
@@ -53,6 +53,7 @@ async function demarrer() {
 
 async function router() {
   const cible = decodeURIComponent(location.hash.slice(2));
+  if (cible !== 'parametres') masquerScriptDrive();
   if (cible === 'parametres') await afficherParametres();
   else if (cible) await ouvrirDemande(cible);
   else await afficherListe();
@@ -125,6 +126,41 @@ async function afficherParametres(etat) {
   }
 
   $('#form-email-rtpa').elements.email.value = etat.emailRtpa;
+  afficherDrive(etat.drive);
+}
+
+const pluriel = (n, mot) => `${n} ${mot}${n > 1 ? 's' : ''}`;
+
+function afficherDrive({ actif, cle, dossier, passage, enAttente }) {
+  $('#form-drive-dossier').elements.dossier.value = dossier?.lien ?? '';
+  $('#lien-dossier-drive').hidden = !dossier;
+  if (dossier) $('#lien-dossier-drive').href = dossier.lien;
+
+  let etat;
+  let alerte = null;
+  if (!actif) {
+    etat = 'Dépôt non installé : enregistrez le dossier, puis générez le script à installer avec votre compte Google Croix-Rouge.';
+  } else if (!passage) {
+    etat = `Script généré le ${dateHeure(cle.le)} par ${cle.par}, pas encore passé : lancez « installer » dans Google Apps Script.`;
+  } else {
+    etat = `Dernier passage du script le ${dateHeure(passage.le)} : ${pluriel(passage.deposes, 'document')} déposé${passage.deposes > 1 ? 's' : ''}. `
+      + `${pluriel(enAttente, 'document')} en attente de dépôt.`;
+    if (passage.erreur) alerte = `Ce passage a échoué : ${passage.erreur}`;
+    else if (Date.now() - Date.parse(passage.le) > 3600_000) {
+      alerte = "Le script n'est pas repassé depuis plus d'une heure : vérifiez qu'il est toujours installé dans Google Apps Script.";
+    }
+  }
+  $('#etat-drive').textContent = etat;
+  $('#erreur-drive').textContent = alerte ?? '';
+  $('#erreur-drive').hidden = !alerte;
+  $('#btn-drive-cle').textContent = actif ? 'Générer un nouveau script' : 'Générer le script';
+  $('#btn-drive-arret').hidden = !actif;
+}
+
+/** Le code contient la clé : il ne reste à l'écran que sur la page Paramètres. */
+function masquerScriptDrive() {
+  $('#bloc-script-drive').hidden = true;
+  $('#script-drive').value = '';
 }
 
 async function modifierParametres(question, action, message) {
@@ -156,6 +192,50 @@ $('#form-email-rtpa').addEventListener('submit', async (ev) => {
   const email = form.elements.email.value.trim();
   await modifierParametres(null, () => api('/api/gestion/parametres/email-rtpa', { methode: 'PUT', corps: { email } }),
     `Les avis de nouvelles demandes iront à ${email}.`);
+});
+
+$('#form-drive-dossier').addEventListener('submit', async (ev) => {
+  ev.preventDefault();
+  const form = ev.target;
+  if (!form.checkValidity()) return form.classList.add('verifie');
+  const dossier = form.elements.dossier.value.trim();
+  await modifierParametres(null, () => api('/api/gestion/parametres/drive-dossier', { methode: 'PUT', corps: { dossier } }),
+    'Les autorisations seront déposées dans ce dossier.');
+});
+
+$('#btn-drive-cle').addEventListener('click', async () => {
+  if (!$('#btn-drive-arret').hidden && !window.confirm(
+    "Générer un nouveau script ? L'ancien cessera aussitôt de fonctionner : il faudra remplacer son code dans Google Apps Script.",
+  )) return;
+  try {
+    const { script, ...etat } = await api('/api/gestion/parametres/drive-cle', { methode: 'POST' });
+    await afficherParametres(etat);
+    $('#script-drive').value = script;
+    $('#bloc-script-drive').hidden = false;
+    $('#bloc-script-drive').scrollIntoView({ behavior: 'smooth', block: 'start' });
+  } catch (e) {
+    gererErreur(e);
+  }
+});
+
+$('#btn-drive-arret').addEventListener('click', () => modifierParametres(
+  'Arrêter le dépôt sur le Google Drive ? Le script installé sera refusé ; les documents déjà déposés restent sur le Drive.',
+  async () => {
+    const etat = await api('/api/gestion/parametres/drive-cle', { methode: 'DELETE' });
+    masquerScriptDrive();
+    return etat;
+  },
+  'Dépôt sur le Google Drive arrêté.',
+));
+
+$('#btn-copier-script').addEventListener('click', async () => {
+  try {
+    await navigator.clipboard.writeText($('#script-drive').value);
+    notifier('Code copié : collez-le dans votre projet Google Apps Script.');
+  } catch {
+    $('#script-drive').select();
+    notifier('Copiez le code sélectionné (Ctrl+C ou Cmd+C).');
+  }
 });
 
 // ---------- Liste ----------
@@ -253,6 +333,13 @@ async function ouvrirDemande(reference) {
       Object.assign(document.createElement('dd'), { textContent: valeur }),
     );
   }
+  const { drive } = reponse;
+  if (d.statut === 'signee' && (drive.actif || drive.autorisation)) {
+    const dd = element('dd');
+    dd.append(etatDepot('Autorisation signée', drive.autorisation));
+    if (d.autorisationPrefectorale) dd.append(etatDepot('Autorisation préfectorale', drive.prefectorale));
+    dl.append(element('dt', { textContent: 'Google Drive' }), dd);
+  }
   afficherPrefectorale(d);
 
   const enAttente = d.statut === 'en_attente';
@@ -273,6 +360,21 @@ async function ouvrirDemande(reference) {
     $('#btn-supprimer').hidden = signee;
   }
   window.scrollTo({ top: 0 });
+}
+
+/** Une pièce sur le Drive : déposée (lien vers le fichier), ou en attente du prochain passage du script. */
+function etatDepot(libelle, depot) {
+  const ligne = element('span', { className: 'depot-drive' });
+  if (!depot) {
+    ligne.textContent = `${libelle} : en attente de dépôt par le script`;
+    return ligne;
+  }
+  ligne.append(
+    `${libelle} : ${depot.aJour ? 'déposée' : 'version précédente déposée'} le ${dateHeure(depot.deposeLe)} · `,
+    element('a', { className: 'lien', href: depot.lien, target: '_blank', rel: 'noopener', textContent: 'Ouvrir sur le Drive' }),
+  );
+  if (!depot.aJour) ligne.append(' · nouvelle version en attente de dépôt');
+  return ligne;
 }
 
 /** Autorisation préfectorale jointe à une demande de VPSP, affichée pour que le RTPA la vérifie. */

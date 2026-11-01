@@ -41,6 +41,16 @@ const SCHEMA = `
     valeur TEXT NOT NULL
   );
 
+  -- Pièces des autorisations signées déposées sur le Google Drive par le script du RTPA.
+  CREATE TABLE IF NOT EXISTS depots_drive (
+    reference  TEXT NOT NULL REFERENCES demandes (reference) ON DELETE CASCADE,
+    piece      TEXT NOT NULL,              -- autorisation (PDF signé) ou prefectorale (jointe au VPSP)
+    version    TEXT NOT NULL,              -- version déposée : traite_le change à chaque modification
+    fichier    TEXT NOT NULL,              -- identifiant du fichier sur le Drive
+    depose_le  TEXT NOT NULL,
+    PRIMARY KEY (reference, piece)
+  );
+
   CREATE TABLE IF NOT EXISTS journal (
     id        INTEGER PRIMARY KEY AUTOINCREMENT,
     date      TEXT NOT NULL,

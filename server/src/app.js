@@ -2,6 +2,7 @@
 import express from 'express';
 import { join } from 'node:path';
 import { creerAuth } from './auth.js';
+import { creerDepotDrive } from './drive.js';
 import { creerServiceDemandes, DemandeDejaTraitee, DemandeIntrouvable, DemandeNonRefusee, DemandeNonSignee, ErreurValidation } from './demandes.js';
 import { creerIntegrationStockSecours } from './integrations.js';
 import { creerParametres, ErreurParametre } from './parametres.js';
@@ -42,6 +43,7 @@ export function creerApp({ db, config, messagerie, genererPdf, fetch }) {
   parametres.initialiser();
   const demandes = creerServiceDemandes({ db, config, parametres, messagerie, genererPdf });
   const auth = creerAuth({ db, config, parametres, fetch });
+  const drive = creerDepotDrive({ db, config });
   const app = express();
 
   app.disable('x-powered-by');
@@ -57,6 +59,9 @@ export function creerApp({ db, config, messagerie, genererPdf, fetch }) {
     });
     suivant();
   });
+
+  // Dépôt sur le Google Drive par le script du RTPA : clé en Bearer, sans cookie, donc hors contrôle d'origine.
+  app.use('/api/integrations/drive', limiteur(300, 60_000), drive.routeur());
 
   // Écritures : uniquement depuis le site lui-même (protection CSRF, en plus des cookies SameSite).
   app.use('/api', (req, res, suivant) => {
@@ -114,7 +119,7 @@ export function creerApp({ db, config, messagerie, genererPdf, fetch }) {
   });
   gestion.get('/demandes/:reference', (req, res) => {
     const d = demandes.obtenir(req.params.reference);
-    res.json({ demande: d, document: demandes.apercu(req.params.reference, req.compte) });
+    res.json({ demande: d, document: demandes.apercu(req.params.reference, req.compte), drive: drive.pourDemande(d.reference) });
   });
   gestion.get('/demandes/:reference/pdf', (req, res) => {
     const { contenu, nom } = demandes.pdfSigne(req.params.reference);
@@ -162,11 +167,12 @@ export function creerApp({ db, config, messagerie, genererPdf, fetch }) {
   gestion.delete('/demandes/:reference', (req, res) => {
     res.json(demandes.supprimer(req.params.reference, req.compte));
   });
-  // Paramètres : administrateurs et boîte du RTPA.
+  // Paramètres : administrateurs, boîte du RTPA et dépôt sur le Google Drive.
   const etatParametres = () => ({
     gestionnaires: parametres.gestionnaires(),
     emailRtpa: parametres.emailRtpa(),
     connexionsRefusees: parametres.connexionsRefusees(),
+    drive: drive.etat(),
   });
   gestion.get('/parametres', (req, res) => res.json(etatParametres()));
   gestion.post('/gestionnaires', (req, res) => {
@@ -179,6 +185,19 @@ export function creerApp({ db, config, messagerie, genererPdf, fetch }) {
   });
   gestion.put('/parametres/email-rtpa', (req, res) => {
     parametres.changerEmailRtpa(req.body?.email, req.compte);
+    res.json(etatParametres());
+  });
+  gestion.put('/parametres/drive-dossier', (req, res) => {
+    drive.changerDossier(req.body?.dossier, req.compte);
+    res.json(etatParametres());
+  });
+  // Le script n'est renvoyé qu'ici, avec sa clé : elle n'est plus lisible ensuite.
+  gestion.post('/parametres/drive-cle', (req, res) => {
+    const script = drive.genererCle(req.compte);
+    res.json({ ...etatParametres(), script });
+  });
+  gestion.delete('/parametres/drive-cle', (req, res) => {
+    drive.supprimerCle(req.compte);
     res.json(etatParametres());
   });
   app.use('/api/gestion', gestion);

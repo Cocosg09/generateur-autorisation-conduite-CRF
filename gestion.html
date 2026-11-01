@@ -150,6 +150,43 @@
           <button type="submit" class="principal">Enregistrer</button>
         </form>
       </div>
+
+      <div class="carte">
+        <h2>Dépôt sur le Google Drive</h2>
+        <p class="aide">Chaque autorisation signée (et chaque nouvelle version), avec l'autorisation préfectorale jointe
+          pour le VPSP, est déposée dans un dossier du Google Drive de la Croix-Rouge par un petit script installé une
+          fois avec votre compte Google Croix-Rouge. Aucun mot de passe Google n'est confié à ce site ; les documents
+          appartiennent à votre compte.</p>
+        <p id="etat-drive"></p>
+        <p class="erreur" id="erreur-drive" hidden></p>
+        <form id="form-drive-dossier" class="ligne-ajout" novalidate>
+          <label>Lien du dossier Google Drive
+            <input name="dossier" type="text" required autocomplete="off" placeholder="https://drive.google.com/drive/folders/…"></label>
+          <button type="submit" class="principal">Enregistrer</button>
+        </form>
+        <p class="aide">Ouvrez le dossier dans Google Drive et copiez l'adresse de la page. Les documents déjà déposés
+          restent où ils sont si vous changez de dossier.
+          <a class="lien" id="lien-dossier-drive" target="_blank" rel="noopener" hidden>Ouvrir le dossier actuel</a></p>
+        <div class="actions">
+          <button type="button" class="secondaire" id="btn-drive-cle">Générer le script</button>
+          <button type="button" class="lien danger" id="btn-drive-arret" hidden>Arrêter le dépôt</button>
+        </div>
+        <div id="bloc-script-drive" hidden>
+          <ol class="etapes-script">
+            <li>Ouvrez <a class="lien" href="https://script.google.com/home" target="_blank" rel="noopener">script.google.com</a>
+              avec votre compte Google Croix-Rouge et cliquez sur « Nouveau projet ».</li>
+            <li>Remplacez tout le code par celui ci-dessous, puis enregistrez.</li>
+            <li>Dans la barre du haut, choisissez la fonction <strong>installer</strong>, cliquez sur « Exécuter » et
+              acceptez les autorisations demandées.</li>
+          </ol>
+          <p class="aide">Ce code contient une clé personnelle, affichée une seule fois : ne le partagez pas. Pour en
+            changer, générez un nouveau script ; l'ancien cesse aussitôt de fonctionner.</p>
+          <textarea id="script-drive" class="code" rows="10" readonly spellcheck="false" aria-label="Code du script"></textarea>
+          <div class="actions">
+            <button type="button" class="principal" id="btn-copier-script">Copier le code</button>
+          </div>
+        </div>
+      </div>
     </section>
   </main>
 

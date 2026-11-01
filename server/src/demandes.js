@@ -16,7 +16,7 @@ const MAX_POINTS = 4000;
 // Autorisation préfectorale (VPSP) : type reconnu à ses premiers octets, jamais à ce qu'annonce le navigateur.
 const MAX_PREFECTORALE = 5 * 1024 * 1024;
 const BASE64 = /^[A-Za-z0-9+/]+={0,2}$/;
-const FORMATS_PREFECTORALE = [
+export const FORMATS_PREFECTORALE = [
   { type: 'application/pdf', extension: 'pdf', debut: Buffer.from('%PDF-') },
   { type: 'image/jpeg', extension: 'jpg', debut: Buffer.from([0xff, 0xd8, 0xff]) },
   { type: 'image/png', extension: 'png', debut: Buffer.from([0x89, 0x50, 0x4e, 0x47, 0x0d, 0x0a, 0x1a, 0x0a]) },
@@ -115,7 +115,7 @@ const lire = (ligne) =>
       : null,
   };
 
-const nomFichier = (d, prefixe = 'Autorisation_conduite', extension = 'pdf') => {
+export const nomFichier = (d, prefixe = 'Autorisation_conduite', extension = 'pdf') => {
   const propre = (s) => s.normalize('NFD').replace(/[̀-ͯ]/g, '').replace(/[^A-Za-z0-9-]+/g, '_');
   return `${prefixe}_${d.reference}_${propre(d.nom.toUpperCase())}_${propre(d.prenom)}.${extension}`;
 };
