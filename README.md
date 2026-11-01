@@ -14,10 +14,13 @@ Les bénévoles remplissent et signent en ligne leur **Charte du conducteur / Au
    charte et signe à l'écran. Il reçoit une **référence** (`AC-2026-0001`) et peut télécharger son exemplaire.
 2. **Un e-mail automatique** part vers la boîte du RTPA (`RTPA_EMAIL`) avec la seule référence :
    aucun lien, la messagerie de la Croix-Rouge les bloque. Le bénévole reçoit un accusé de réception.
-3. **Le RTPA** se connecte à l'espace gestion avec son compte Gestion des DPS, ouvre la demande, peut
-   décocher des véhicules, signe ou refuse (avec un motif).
+3. **Le RTPA** se connecte à l'espace gestion avec son compte Gestion des DPS, ouvre la demande, ajuste
+   la sélection de véhicules (cocher ou décocher), signe ou refuse (avec un motif).
 4. **À la signature**, le serveur génère le PDF et l'envoie en pièce jointe au bénévole, avec une copie
    dans la boîte du RTPA. Le nom du RTPA inscrit sur le document est celui de son compte Gestion des DPS.
+5. **Sur une autorisation déjà signée**, le RTPA peut **modifier les véhicules autorisés** : il signe une
+   nouvelle version, qui remplace le PDF conservé et est renvoyée au bénévole (copie au RTPA). La demande
+   initiale du bénévole reste visible, et l'action est inscrite au journal (`demande.modifiee`).
 
 ### Accès et données personnelles
 

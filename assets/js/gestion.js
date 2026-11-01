@@ -1,4 +1,4 @@
-// Espace gestion du RTPA : liste des demandes, signature ou refus.
+// Espace gestion du RTPA : liste des demandes, signature ou refus, modification d'une autorisation signée.
 import { VEHICULES, libelleVehicule, SIG_W, SIG_H } from './pdf.js';
 import { PadSignature } from './signature.js';
 import {
@@ -244,28 +244,60 @@ async function ouvrirDemande(reference) {
   }
 
   const enAttente = d.statut === 'en_attente';
-  $('#form-signature').hidden = !enAttente;
   $('#form-refus').hidden = true;
   $('#bloc-traite').hidden = enAttente;
   if (enAttente) {
-    afficherVehicules($('#vehicules-rtpa'), d.vehicules);
-    $('#identite-rtpa').textContent =
-      `${compte.prenom} ${compte.nom} – Fonction : ${reponse.document.rtpa.fonction}, pour la structure : ${reponse.document.rtpa.structure}`;
-    pad.effacer();
-    montrerErreur('#erreur-vehicules-rtpa', false);
-    montrerErreur('#erreur-signature-rtpa', false);
+    preparerSignature(d.vehicules, false);
   } else {
+    $('#form-signature').hidden = true;
     $('#texte-traite').textContent = d.statut === 'signee'
       ? `Autorisation signée et envoyée par e-mail à ${d.email}.`
       : `Demande refusée ; le bénévole en a été informé par e-mail.`;
     $('#btn-pdf').hidden = d.statut !== 'signee';
     $('#btn-pdf').href = `/api/gestion/demandes/${encodeURIComponent(d.reference)}/pdf`;
+    $('#btn-modifier').hidden = d.statut !== 'signee';
   }
   window.scrollTo({ top: 0 });
 }
 
+/**
+ * Formulaire de signature, pré-coché avec les véhicules donnés. En modification, il établit une
+ * nouvelle version d'une autorisation déjà signée (pas de refus possible, retour arrière offert).
+ */
+let modification = false;
+function preparerSignature(vehicules, enModification) {
+  modification = enModification;
+  const { document: doc } = courante;
+  afficherVehicules($('#vehicules-rtpa'), vehicules);
+  $('#identite-rtpa').textContent =
+    `${compte.prenom} ${compte.nom} – Fonction : ${doc.rtpa.fonction}, pour la structure : ${doc.rtpa.structure}`;
+  $('#aide-modification').hidden = !enModification;
+  $('#btn-signer').textContent = enModification
+    ? 'Signer la nouvelle version et l\'envoyer au bénévole'
+    : 'Signer et envoyer au bénévole';
+  $('#btn-ouvrir-refus').hidden = enModification;
+  $('#btn-annuler-modification').hidden = !enModification;
+  pad.effacer();
+  montrerErreur('#erreur-vehicules-rtpa', false);
+  montrerErreur('#erreur-signature-rtpa', false);
+  $('#form-signature').hidden = false;
+}
+
+$('#btn-modifier').addEventListener('click', () => {
+  const d = courante.demande;
+  preparerSignature(d.vehiculesAutorises ?? d.vehicules, true);
+  $('#bloc-traite').hidden = true;
+  $('#form-signature').scrollIntoView({ behavior: 'smooth' });
+});
+$('#btn-annuler-modification').addEventListener('click', () => {
+  $('#form-signature').hidden = true;
+  $('#bloc-traite').hidden = false;
+});
+
 const documentEnCours = () => ({
   ...courante.document,
+  // Le signataire du document est le compte connecté, pas celui de la version précédente.
+  rtpa: { ...courante.document.rtpa, nom: `${compte.prenom} ${compte.nom}` },
   vehicules: vehiculesCoches($('#vehicules-rtpa')),
   signatureRtpa: pad.traits(),
 });
@@ -283,10 +315,13 @@ $('#form-signature').addEventListener('submit', async (ev) => {
   bouton.disabled = true;
   try {
     const reference = courante.demande.reference;
-    await api(`/api/gestion/demandes/${encodeURIComponent(reference)}/signer`, {
+    const action = modification ? 'modifier' : 'signer';
+    await api(`/api/gestion/demandes/${encodeURIComponent(reference)}/${action}`, {
       methode: 'POST', corps: { vehicules, signature: pad.traits() },
     });
-    notifier(`Autorisation ${reference} signée et envoyée au bénévole.`);
+    notifier(modification
+      ? `Nouvelle version de l'autorisation ${reference} signée et envoyée au bénévole.`
+      : `Autorisation ${reference} signée et envoyée au bénévole.`);
     await ouvrirDemande(reference);
   } catch (e) {
     gererErreur(e);

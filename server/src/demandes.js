@@ -5,6 +5,7 @@ import { journaliser } from './base.js';
 export class ErreurValidation extends Error {}
 export class DemandeIntrouvable extends Error {}
 export class DemandeDejaTraitee extends Error {}
+export class DemandeNonSignee extends Error {}
 
 const CODES = new Set(VEHICULES.map((v) => v.code));
 const EMAIL = /^[^\s@<>"',;]+@[^\s@<>"',;]+\.[^\s@<>"',;]+$/;
@@ -174,9 +175,13 @@ export function creerServiceDemandes({ db, config, parametres, messagerie, gener
       return { contenu: ligne.pdf, nom: nomFichier({ reference, ...JSON.parse(ligne.benevole) }) };
     },
 
-    async signer(reference, corps, compte) {
+    /**
+     * Signature (demande en attente) ou nouvelle version (autorisation déjà signée dont le RTPA
+     * change les véhicules) : même document, même PDF, même envoi au bénévole.
+     */
+    async etablir(reference, corps, compte, { depuis, action, modification }) {
       const d = service.obtenir(reference);
-      if (d.statut !== 'en_attente') throw new DemandeDejaTraitee(reference);
+      if (d.statut !== depuis) throw depuis === 'en_attente' ? new DemandeDejaTraitee(reference) : new DemandeNonSignee(reference);
       const autorises = vehicules(corps?.vehicules);
       const sig = signature(corps?.signature);
       const rtpa = { id: compte.id, nom: `${compte.prenom} ${compte.nom}`, email: compte.email };
@@ -184,22 +189,27 @@ export function creerServiceDemandes({ db, config, parametres, messagerie, gener
       const date = maintenant().toISOString();
       const resultat = db.prepare(
         `UPDATE demandes SET statut = 'signee', vehicules = ?, rtpa = ?, signature_rtpa = ?, traite_le = ?, pdf = ?
-         WHERE reference = ? AND statut = 'en_attente'`,
-      ).run(JSON.stringify(autorises), JSON.stringify(rtpa), JSON.stringify(sig), date, pdf, reference);
+         WHERE reference = ? AND statut = ?`,
+      ).run(JSON.stringify(autorises), JSON.stringify(rtpa), JSON.stringify(sig), date, pdf, reference, depuis);
       if (resultat.changes !== 1) throw new DemandeDejaTraitee(reference);
-      journaliser(db, `rtpa ${compte.email}`, 'demande.signee', reference);
+      journaliser(db, `rtpa ${compte.email}`, action, reference);
 
       const pieceJointe = { nom: nomFichier(d), contenu: pdf };
       await Promise.allSettled([
         messagerie.envoyer({
           a: d.email,
-          sujet: `Votre autorisation de conduite ${reference}`,
+          sujet: modification
+            ? `Votre autorisation de conduite ${reference} (nouvelle version)`
+            : `Votre autorisation de conduite ${reference}`,
           texte: [
             `Bonjour ${d.prenom},`,
             '',
-            'Vous trouverez ci-joint votre autorisation de conduite signée.',
+            modification
+              ? 'Les véhicules de votre autorisation de conduite ont été modifiés par le RTPA. Vous trouverez ci-joint la nouvelle version signée, qui remplace la précédente.'
+              : 'Vous trouverez ci-joint votre autorisation de conduite signée.',
             '',
             `Référence : ${reference}`,
+            `Véhicules autorisés : ${autorises.join(', ')}`,
             '',
             `${rtpa.nom}`,
             `${config.structure.fonction} – ${config.structure.structure}`,
@@ -209,12 +219,23 @@ export function creerServiceDemandes({ db, config, parametres, messagerie, gener
         // Copie pour l'archivage de la boîte du RTPA.
         messagerie.envoyer({
           a: parametres.emailRtpa(),
-          sujet: `Autorisation de conduite signée ${reference}`,
-          texte: `Autorisation ${reference} de ${d.prenom} ${d.nom}, signée par ${rtpa.nom}.\n\nCopie automatique.`,
+          sujet: modification
+            ? `Autorisation de conduite modifiée ${reference}`
+            : `Autorisation de conduite signée ${reference}`,
+          texte: `Autorisation ${reference} de ${d.prenom} ${d.nom}, ${modification ? 'modifiée' : 'signée'} par ${rtpa.nom} (${autorises.join(', ')}).\n\nCopie automatique.`,
           pieceJointe,
         }),
       ]);
       return { reference, statut: 'signee' };
+    },
+
+    signer(reference, corps, compte) {
+      return service.etablir(reference, corps, compte, { depuis: 'en_attente', action: 'demande.signee' });
+    },
+
+    /** Le RTPA change les véhicules d'une autorisation signée : nouveau PDF, renvoyé au bénévole. */
+    modifier(reference, corps, compte) {
+      return service.etablir(reference, corps, compte, { depuis: 'signee', action: 'demande.modifiee', modification: true });
     },
 
     async refuser(reference, corps, compte) {

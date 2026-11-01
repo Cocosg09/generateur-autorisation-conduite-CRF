@@ -145,6 +145,42 @@ test('connexion puis signature : PDF envoyé au bénévole et à la boîte RTPA'
   assert.equal(encore.status, 409);
 });
 
+test('le RTPA modifie les véhicules d\'une autorisation signée : nouveau PDF renvoyé au bénévole', async () => {
+  const { reference } = await (await poster('/api/demandes', DEMANDE)).json();
+  const { cookie } = await seConnecter();
+  const avecSession = { Cookie: cookie };
+
+  // Pas de modification tant que la demande n'est pas signée.
+  const tropTot = await poster(`/api/gestion/demandes/${reference}/modifier`, { vehicules: ['VL'], signature: SIGNATURE }, avecSession);
+  assert.equal(tropTot.status, 409);
+
+  await poster(`/api/gestion/demandes/${reference}/signer`, { vehicules: ['VL'], signature: SIGNATURE }, avecSession);
+  const avant = Buffer.from(await (await fetch(`${base}/api/gestion/demandes/${reference}/pdf`, { headers: avecSession })).arrayBuffer());
+
+  envoyes = [];
+  const sansVehicule = await poster(`/api/gestion/demandes/${reference}/modifier`, { vehicules: [], signature: SIGNATURE }, avecSession);
+  assert.equal(sansVehicule.status, 400);
+  const modifie = await poster(`/api/gestion/demandes/${reference}/modifier`, { vehicules: ['VPSP', 'VL', 'REM'], signature: SIGNATURE }, avecSession);
+  assert.equal(modifie.status, 200);
+  assert.deepEqual(await modifie.json(), { reference, statut: 'signee' });
+
+  const detail = await (await fetch(`${base}/api/gestion/demandes/${reference}`, { headers: avecSession })).json();
+  assert.equal(detail.demande.statut, 'signee');
+  assert.deepEqual(detail.demande.vehiculesAutorises, ['VL', 'VPSP', 'REM']);
+  assert.deepEqual(detail.demande.vehicules, ['VL', 'VPSP'], 'la demande du bénévole est conservée');
+
+  assert.equal(envoyes.length, 2);
+  const auBenevole = envoyes.find((m) => m.a === 'camille@example.org');
+  assert.match(auBenevole.sujet, /nouvelle version/);
+  assert.ok(auBenevole.texte.includes('VL, VPSP, REM'));
+  const apres = Buffer.from(await (await fetch(`${base}/api/gestion/demandes/${reference}/pdf`, { headers: avecSession })).arrayBuffer());
+  assert.equal(apres.subarray(0, 5).toString(), '%PDF-');
+  assert.notDeepEqual(apres, avant, 'le PDF signé a été remplacé');
+
+  const journal = db.prepare("SELECT action FROM journal WHERE reference = ? ORDER BY id").all(reference).map((l) => l.action);
+  assert.deepEqual(journal, ['demande.deposee', 'demande.signee', 'demande.modifiee']);
+});
+
 test('refus avec motif, e-mail au bénévole', async () => {
   const { reference } = await (await poster('/api/demandes', DEMANDE)).json();
   const { cookie } = await seConnecter();

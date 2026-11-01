@@ -2,7 +2,7 @@
 import express from 'express';
 import { join } from 'node:path';
 import { creerAuth } from './auth.js';
-import { creerServiceDemandes, DemandeDejaTraitee, DemandeIntrouvable, ErreurValidation } from './demandes.js';
+import { creerServiceDemandes, DemandeDejaTraitee, DemandeIntrouvable, DemandeNonSignee, ErreurValidation } from './demandes.js';
 import { creerParametres, ErreurParametre } from './parametres.js';
 
 const CSP = [
@@ -124,6 +124,13 @@ export function creerApp({ db, config, messagerie, genererPdf, fetch }) {
       suivant(e);
     }
   });
+  gestion.post('/demandes/:reference/modifier', async (req, res, suivant) => {
+    try {
+      res.json(await demandes.modifier(req.params.reference, req.body, req.compte));
+    } catch (e) {
+      suivant(e);
+    }
+  });
   gestion.post('/demandes/:reference/refuser', async (req, res, suivant) => {
     try {
       res.json(await demandes.refuser(req.params.reference, req.body, req.compte));
@@ -178,6 +185,7 @@ export function creerApp({ db, config, messagerie, genererPdf, fetch }) {
     }
     if (err instanceof DemandeIntrouvable) return res.status(404).json({ erreur: 'Demande introuvable' });
     if (err instanceof DemandeDejaTraitee) return res.status(409).json({ erreur: 'Demande déjà traitée' });
+    if (err instanceof DemandeNonSignee) return res.status(409).json({ erreur: 'Demande non signée' });
     if (err.type === 'entity.parse.failed' || err.type === 'entity.too.large') {
       return res.status(400).json({ erreur: 'Requête invalide' });
     }

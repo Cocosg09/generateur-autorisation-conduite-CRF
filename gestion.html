@@ -60,9 +60,11 @@
       </div>
 
       <form id="form-signature" novalidate hidden>
+        <p class="aide" id="aide-modification" hidden>Vous établissez une <strong>nouvelle version</strong> de cette autorisation :
+          elle remplace le document signé précédent et sera renvoyée au bénévole par e-mail.</p>
         <fieldset>
           <legend>Véhicules autorisés</legend>
-          <p class="aide">Vous pouvez décocher les véhicules que vous n'autorisez pas.</p>
+          <p class="aide">Cochez ou décochez les véhicules selon ce que vous autorisez.</p>
           <div class="vehicules" id="vehicules-rtpa"></div>
           <p class="erreur" id="erreur-vehicules-rtpa" hidden>Sélectionnez au moins un type de véhicule.</p>
         </fieldset>
@@ -80,8 +82,9 @@
 
         <div class="actions">
           <button type="button" class="secondaire" id="btn-apercu">Aperçu du document</button>
-          <button type="submit" class="principal">Signer et envoyer au bénévole</button>
+          <button type="submit" class="principal" id="btn-signer">Signer et envoyer au bénévole</button>
           <button type="button" class="lien danger" id="btn-ouvrir-refus">Refuser la demande</button>
+          <button type="button" class="lien" id="btn-annuler-modification" hidden>Annuler la modification</button>
         </div>
       </form>
 
@@ -99,6 +102,7 @@
         <p id="texte-traite"></p>
         <div class="actions">
           <a class="bouton secondaire" id="btn-pdf" hidden>Télécharger le PDF signé</a>
+          <button type="button" class="lien" id="btn-modifier" hidden>Modifier les véhicules autorisés</button>
         </div>
       </div>
     </section>
