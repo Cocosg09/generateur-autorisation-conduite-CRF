@@ -25,6 +25,11 @@ const nomPiece = (piece, l) => {
   if (piece === 'autorisation') return nomFichier(d);
   return nomFichier(d, 'Autorisation_prefectorale', FORMATS_PREFECTORALE.find((f) => f.type === l.prefectorale_type).extension);
 };
+// Un dossier par bénévole (« NOM Prénom ») : ses autorisations successives et son autorisation préfectorale.
+const dossierPersonne = (l) => {
+  const { nom, prenom } = JSON.parse(l.benevole);
+  return `${nom.trim().toUpperCase()} ${prenom.trim()}`.replace(/\s+/g, ' ');
+};
 // Pièces jamais déposées, ou remplacées depuis leur dépôt.
 const A_DEPOSER = Object.entries(PIECES).map(([piece, def]) => `
   SELECT d.reference, '${piece}' AS piece, d.${def.version} AS version, d.benevole, d.prefectorale_type, p.fichier AS precedent
@@ -107,6 +112,7 @@ export function creerDepotDrive({ db, config, maintenant = () => new Date() }) {
         piece: l.piece,
         version: l.version,
         nom: nomPiece(l.piece, l),
+        sousDossier: dossierPersonne(l),
         fichierPrecedent: l.precedent,
       }));
       return { dossier: lire('drive_dossier'), documents };
