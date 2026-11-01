@@ -221,6 +221,35 @@ test('dépôt Drive : pièces de chaque autorisation signée déposées une fois
   assert.equal(db.prepare('SELECT COUNT(*) AS n FROM depots_drive').get().n, 0);
 });
 
+test('dépôt Drive : tout redéposer après des suppressions à la main, sauf les autorisations annulées', async () => {
+  const appel = gestion(await seConnecter());
+  await appel('PUT', '/gestion/parametres/drive-dossier', { dossier: DOSSIER });
+  const drive = script(cleDuScript((await (await appel('POST', '/gestion/parametres/drive-cle')).json()).script));
+  const reference = await deposer();
+  const annulee = await deposer({ ...DEMANDE, vehicules: ['VL'], autorisationPrefectorale: undefined });
+  for (const ref of [reference, annulee]) {
+    await appel('POST', `/gestion/demandes/${ref}/signer`, { vehicules: ['VL'], signature: SIGNATURE });
+  }
+  let n = 0;
+  for (const doc of (await (await drive('GET', '/documents')).json()).documents) {
+    n += 1;
+    await drive('POST', `/documents/${doc.reference}/${doc.piece}/depot`, { version: doc.version, fichier: `fichier-drive-000${n}` });
+  }
+  await appel('POST', `/gestion/demandes/${annulee}/annuler`, { motif: 'Permis suspendu' });
+
+  assert.equal((await fetch(`${base}/api/gestion/parametres/drive-redepot`, { method: 'POST', headers: ORIGINE })).status, 401);
+  const etat = await (await appel('POST', '/gestion/parametres/drive-redepot')).json();
+  assert.equal(etat.drive.enAttente, 2);
+  const lot = await (await drive('GET', '/documents')).json();
+  assert.deepEqual(lot.documents.map((d) => [d.reference, d.piece, d.fichierPrecedent]), [
+    [reference, 'autorisation', null], [reference, 'prefectorale', null],
+  ]);
+  // Le fichier de l'autorisation annulée part toujours à la corbeille.
+  assert.deepEqual(lot.aRetirer.map((d) => d.reference), [annulee]);
+  const actions = db.prepare("SELECT action FROM journal WHERE action LIKE 'drive.redepot%'").all().map((l) => l.action);
+  assert.deepEqual(actions, ['drive.redepot 2']);
+});
+
 // ---------- Script Google Apps Script, exécuté avec des doublures des services Google ----------
 
 function executerScript({ documents, aRetirer = [], dossier = DOSSIER, pdf = () => 200 }) {

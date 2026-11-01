@@ -218,6 +218,10 @@ export function creerApp({ db, config, messagerie, genererPdf, fetch }) {
     const script = drive.genererCle(req.compte);
     res.json({ ...etatParametres(), script });
   });
+  gestion.post('/parametres/drive-redepot', (req, res) => {
+    drive.toutRedeposer(req.compte);
+    res.json(etatParametres());
+  });
   gestion.delete('/parametres/drive-cle', (req, res) => {
     drive.supprimerCle(req.compte);
     res.json(etatParametres());

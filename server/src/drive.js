@@ -106,6 +106,17 @@ export function creerDepotDrive({ db, config, maintenant = () => new Date() }) {
       journaliser(db, compte.email, `parametre.drive_dossier ${id}`);
     },
 
+    /**
+     * Après des suppressions à la main sur le Drive : toutes les pièces signées redeviennent à déposer.
+     * Celles des autorisations annulées restent suivies, pour partir à la corbeille.
+     */
+    toutRedeposer(compte) {
+      const { changes } = db.prepare(
+        "DELETE FROM depots_drive WHERE reference IN (SELECT reference FROM demandes WHERE statut = 'signee')",
+      ).run();
+      journaliser(db, compte.email, `drive.redepot ${changes}`);
+    },
+
     cleValide(entete) {
       const attendue = lire('drive_cle');
       if (!attendue || typeof entete !== 'string' || !entete.startsWith('Bearer ')) return false;

@@ -84,7 +84,9 @@ et aucun identifiant Google ne sont nécessaires sur ce serveur ; les fichiers a
    passage du script et ses erreurs. Google prévient aussi le RTPA par e-mail si un passage échoue.
 
 Générer un nouveau script révoque l'ancien ; **Arrêter le dépôt** ferme l'interface (les fichiers restent
-sur le Drive, au-delà de la durée de conservation de ce site). Interface du script :
+sur le Drive, au-delà de la durée de conservation de ce site). Après des suppressions à la main sur le Drive,
+**Tout redéposer** fait redéposer toutes les autorisations signées au passage suivant (les copies encore
+présentes dans les sous-dossiers sont remplacées). Interface du script :
 `/api/integrations/drive/*` (clé en `Bearer`, 300 appels par minute), modèle du script :
 [`server/src/depot-drive.gs`](server/src/depot-drive.gs).
 

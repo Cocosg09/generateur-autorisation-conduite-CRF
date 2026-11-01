@@ -156,6 +156,7 @@ function afficherDrive({ actif, cle, dossier, passage, enAttente, aRetirer }) {
   $('#erreur-drive').hidden = !alerte;
   $('#btn-drive-cle').textContent = actif ? 'Générer un nouveau script' : 'Générer le script';
   $('#btn-drive-arret').hidden = !actif;
+  $('#btn-drive-redepot').hidden = !actif;
 }
 
 /** Le code contient la clé : il ne reste à l'écran que sur la page Paramètres. */
@@ -218,6 +219,13 @@ $('#btn-drive-cle').addEventListener('click', async () => {
     gererErreur(e);
   }
 });
+
+$('#btn-drive-redepot').addEventListener('click', () => modifierParametres(
+  'Tout redéposer sur le Google Drive ? À utiliser après avoir supprimé des documents à la main : le script redéposera '
+    + 'toutes les autorisations signées à son prochain passage, en remplaçant celles qui sont encore dans les sous-dossiers.',
+  () => api('/api/gestion/parametres/drive-redepot', { methode: 'POST' }),
+  'Tout sera redéposé au prochain passage du script (ou lancez « deposer » dans Google Apps Script).',
+));
 
 $('#btn-drive-arret').addEventListener('click', () => modifierParametres(
   'Arrêter le dépôt sur le Google Drive ? Le script installé sera refusé ; les documents déjà déposés restent sur le Drive.',
