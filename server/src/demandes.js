@@ -1,4 +1,5 @@
-// Demandes d'autorisation de conduite : dépôt par le bénévole, signature ou refus par le RTPA.
+// Demandes d'autorisation de conduite : dépôt par le bénévole, signature ou refus par le RTPA,
+// annulation par le RTPA d'une autorisation signée.
 import { VEHICULES, SIG_W, SIG_H } from '../../assets/js/pdf.js';
 import { journaliser } from './base.js';
 
@@ -23,7 +24,7 @@ export const FORMATS_PREFECTORALE = [
 ];
 // Toutes les colonnes sauf les fichiers (PDF signé, autorisation préfectorale), lus à part.
 const COLONNES = `reference, annee, cree_le, statut, benevole, vehicules, rtpa, signature_rtpa, motif_refus, traite_le,
-  prefectorale_type, length(prefectorale) AS prefectorale_taille`;
+  prefectorale_type, length(prefectorale) AS prefectorale_taille, annulation`;
 
 function chaine(valeur, nom, max) {
   if (typeof valeur !== 'string' || !valeur.trim()) throw new ErreurValidation(`Champ « ${nom} » manquant`);
@@ -113,6 +114,7 @@ const lire = (ligne) =>
     autorisationPrefectorale: ligne.prefectorale_type
       ? { type: ligne.prefectorale_type, taille: ligne.prefectorale_taille }
       : null,
+    annulation: ligne.annulation ? JSON.parse(ligne.annulation) : null,
   };
 
 export const nomFichier = (d, prefixe = 'Autorisation_conduite', extension = 'pdf') => {
@@ -334,6 +336,46 @@ export function creerServiceDemandes({ db, config, parametres, messagerie, gener
         ].join('\n'),
       }).catch(() => {});
       return { reference, statut: 'refusee' };
+    },
+
+    /**
+     * Le RTPA retire une autorisation signée : elle n'est plus valable, n'est plus transmise à Stock
+     * Secours ni déposée sur le Drive. Le PDF et la signature restent, pour la traçabilité.
+     */
+    async annuler(reference, corps, compte) {
+      const d = service.obtenir(reference);
+      if (d.statut !== 'signee') throw new DemandeNonSignee(reference);
+      const motif = chaine(corps?.motif, 'motif', 500);
+      const rtpa = { id: compte.id, nom: `${compte.prenom} ${compte.nom}`, email: compte.email };
+      const annulation = { rtpa, le: maintenant().toISOString(), motif };
+      const resultat = db.prepare(
+        `UPDATE demandes SET statut = 'annulee', annulation = ? WHERE reference = ? AND statut = 'signee'`,
+      ).run(JSON.stringify(annulation), reference);
+      if (resultat.changes !== 1) throw new DemandeNonSignee(reference);
+      journaliser(db, `rtpa ${compte.email}`, 'demande.annulee', reference);
+      await Promise.allSettled([
+        messagerie.envoyer({
+          a: d.email,
+          sujet: `Annulation de votre autorisation de conduite ${reference}`,
+          texte: [
+            `Bonjour ${d.prenom},`,
+            '',
+            "Votre autorisation de conduite a été annulée par le référent territorial du parc automobile (RTPA) : elle n'est plus valable.",
+            '',
+            `Référence : ${reference}`,
+            `Motif : ${motif}`,
+            '',
+            `${rtpa.nom}`,
+            `${config.structure.fonction} – ${config.structure.structure}`,
+          ].join('\n'),
+        }),
+        messagerie.envoyer({
+          a: parametres.emailRtpa(),
+          sujet: `Autorisation de conduite annulée ${reference}`,
+          texte: `Autorisation ${reference} de ${d.prenom} ${d.nom}, annulée par ${rtpa.nom}.\nMotif : ${motif}\n\nCopie automatique.`,
+        }),
+      ]);
+      return { reference, statut: 'annulee' };
     },
 
     /** Une demande refusée repasse en attente : le RTPA pourra la signer (ou la refuser à nouveau). */

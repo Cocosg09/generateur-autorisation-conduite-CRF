@@ -17,7 +17,7 @@ const CSP = [
 ].join('; ');
 
 const REFERENCE = /^AC-\d{4}-\d{4,}$/;
-const STATUTS = new Set(['en_attente', 'signee', 'refusee']);
+const STATUTS = new Set(['en_attente', 'signee', 'refusee', 'annulee']);
 
 /** Limiteur de débit en mémoire (une seule instance du serveur). */
 function limiteur(max, fenetreMs) {
@@ -157,6 +157,13 @@ export function creerApp({ db, config, messagerie, genererPdf, fetch }) {
   gestion.post('/demandes/:reference/refuser', async (req, res, suivant) => {
     try {
       res.json(await demandes.refuser(req.params.reference, req.body, req.compte));
+    } catch (e) {
+      suivant(e);
+    }
+  });
+  gestion.post('/demandes/:reference/annuler', async (req, res, suivant) => {
+    try {
+      res.json(await demandes.annuler(req.params.reference, req.body, req.compte));
     } catch (e) {
       suivant(e);
     }

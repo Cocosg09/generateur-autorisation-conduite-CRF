@@ -28,6 +28,10 @@ Les bénévoles remplissent et signent en ligne leur **Charte du conducteur / Au
 6. **Sur une demande refusée**, le RTPA peut la **rouvrir** (elle repasse en attente, sans e-mail, pour être
    signée ou refusée à nouveau) ou la **supprimer** définitivement ; seul le journal en garde la trace
    (`demande.rouverte`, `demande.supprimee`).
+7. **Sur une autorisation signée**, le RTPA peut aussi l'**annuler**, avec un motif transmis au bénévole par
+   e-mail (copie au RTPA). C'est définitif : elle n'est plus valable, n'est plus transmise à Stock Secours ni
+   déposée sur le Google Drive. La fiche, le PDF signé et le motif restent consultables jusqu'à la purge ; les
+   documents déjà déposés sur le Drive y restent, à supprimer à la main si besoin (`demande.annulee`).
 
 ### Accès et données personnelles
 
@@ -49,7 +53,7 @@ autorisés par le RTPA, date de signature) pour ne proposer, dans son carnet de 
 habilités pour chaque type de véhicule. Interface de serveur à serveur
 `GET /api/integrations/stock-secours/autorisations`, protégée par le jeton `STOCK_SECOURS_TOKEN`
 (`AUTORISATION_CONDUITE_TOKEN` côté Stock Secours), fermée tant qu'il n'est pas renseigné, 100 appels par
-minute, chaque appel au journal. Une demande en attente, refusée, supprimée ou purgée n'y figure pas :
+minute, chaque appel au journal. Une demande en attente, refusée, annulée, supprimée ou purgée n'y figure pas :
 Stock Secours retire alors l'habilitation. Contrat : [`CONTRAT_API_STOCK_SECOURS.md`](CONTRAT_API_STOCK_SECOURS.md).
 
 ### Dépôt sur le Google Drive de la Croix-Rouge

@@ -222,6 +222,7 @@ button:disabled { opacity: .6; cursor: wait; }
 .badge.en_attente { background: #fff3cd; color: #7a5300; }
 .badge.signee { background: #dff3e4; color: #1e6b34; }
 .badge.refusee { background: #fde2e2; color: var(--rouge-fonce); }
+.badge.annulee { background: #e6e6e6; color: #444; }
 .titre-detail { display: flex; flex-wrap: wrap; gap: 8px 12px; align-items: center; margin-bottom: 12px; }
 .titre-detail h2 { margin: 0; }
 .vide { text-align: center; padding: 24px 0; }

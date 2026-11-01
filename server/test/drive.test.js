@@ -124,11 +124,13 @@ test('dépôt Drive : pièces de chaque autorisation signée déposées une fois
   const reference = await deposer();
   const sansVpsp = await deposer({ ...DEMANDE, vehicules: ['VL'], autorisationPrefectorale: undefined });
   const refusee = await deposer();
+  const annulee = await deposer();
   await deposer(); // en attente : rien à déposer
-  for (const ref of [reference, sansVpsp]) {
+  for (const ref of [reference, sansVpsp, annulee]) {
     await appel('POST', `/gestion/demandes/${ref}/signer`, { vehicules: ['VL'], signature: SIGNATURE });
   }
   await appel('POST', `/gestion/demandes/${refusee}/refuser`, { motif: 'Non' });
+  await appel('POST', `/gestion/demandes/${annulee}/annuler`, { motif: 'Erreur de saisie' }); // annulée avant tout dépôt
 
   // Le PDF signé de chaque autorisation, et l'autorisation préfectorale quand le bénévole en a joint une.
   let lot = await (await drive('GET', '/documents')).json();
@@ -151,6 +153,7 @@ test('dépôt Drive : pièces de chaque autorisation signée déposées une fois
   assert.equal((await drive('GET', `/documents/${reference}/permis${version(signee)}`)).status, 404);
   assert.equal((await drive('GET', `/documents/${sansVpsp}/prefectorale${version(autre)}`)).status, 404);
   assert.equal((await drive('GET', `/documents/${refusee}/autorisation${version(signee)}`)).status, 404);
+  assert.equal((await drive('GET', `/documents/${annulee}/autorisation${version(signee)}`)).status, 404);
 
   // Accusés de dépôt : sans en-tête Origin, mais contrôlés.
   const accuser = (ref, doc, fichier) => drive('POST', `/documents/${ref}/${doc.piece}/depot`, { version: doc.version, fichier });
@@ -178,6 +181,12 @@ test('dépôt Drive : pièces de chaque autorisation signée déposées une fois
   fiche = await (await appel('GET', `/gestion/demandes/${reference}`)).json();
   assert.equal(fiche.drive.autorisation.aJour, false);
   assert.equal(fiche.drive.prefectorale.aJour, true);
+
+  // Annulation après dépôt : rien de plus à déposer ; la fiche indique le fichier resté sur le Drive.
+  await appel('POST', `/gestion/demandes/${sansVpsp}/annuler`, { motif: 'Permis suspendu' });
+  assert.deepEqual((await (await drive('GET', '/documents')).json()).documents.map((d) => d.reference), [reference]);
+  fiche = await (await appel('GET', `/gestion/demandes/${sansVpsp}`)).json();
+  assert.equal(fiche.drive.autorisation.lien, 'https://drive.google.com/file/d/fichier-drive-0003/view');
 
   // Bilan du passage, visible dans les Paramètres.
   await drive('POST', '/bilan', { deposes: 3, erreur: '  Dossier introuvable  ' });

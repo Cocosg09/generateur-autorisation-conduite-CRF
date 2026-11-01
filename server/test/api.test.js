@@ -181,6 +181,46 @@ test('base existante : colonnes de l\'autorisation préfectorale ajoutées au d�
   }
 });
 
+test('base existante : statut « annulee » ajouté en recréant la table, dépôts Drive conservés', () => {
+  const dossier = mkdtempSync(join(tmpdir(), 'autorisation-conduite-'));
+  try {
+    const fichier = join(dossier, 'precedente.sqlite');
+    const precedente = new DatabaseSync(fichier);
+    precedente.exec(`PRAGMA foreign_keys = ON;
+      CREATE TABLE demandes (reference TEXT PRIMARY KEY, annee INTEGER NOT NULL, numero INTEGER NOT NULL,
+        cree_le TEXT NOT NULL, statut TEXT NOT NULL CHECK (statut IN ('en_attente', 'signee', 'refusee')),
+        benevole TEXT NOT NULL, vehicules TEXT, rtpa TEXT, signature_rtpa TEXT, motif_refus TEXT, traite_le TEXT,
+        pdf BLOB, prefectorale BLOB, prefectorale_type TEXT, UNIQUE (annee, numero));
+      CREATE INDEX demandes_statut ON demandes (statut, cree_le);
+      CREATE TABLE depots_drive (reference TEXT NOT NULL REFERENCES demandes (reference) ON DELETE CASCADE,
+        piece TEXT NOT NULL, version TEXT NOT NULL, fichier TEXT NOT NULL, depose_le TEXT NOT NULL,
+        PRIMARY KEY (reference, piece));
+      INSERT INTO demandes (reference, annee, numero, cree_le, statut, benevole, traite_le, pdf)
+        VALUES ('AC-2026-0001', 2026, 1, '2026-01-01', 'signee', '{"nom":"X"}', '2026-01-02', x'25504446');
+      INSERT INTO depots_drive VALUES ('AC-2026-0001', 'autorisation', '2026-01-02', 'fichier-drive-0001', '2026-01-03');`);
+    precedente.close();
+
+    const db2 = ouvrirBase(fichier);
+    const ligne = db2.prepare('SELECT * FROM demandes').get();
+    assert.equal(ligne.benevole, '{"nom":"X"}');
+    assert.equal(Buffer.from(ligne.pdf).toString(), '%PDF');
+    assert.equal(ligne.annulation, null);
+    db2.prepare("UPDATE demandes SET statut = 'annulee'").run();
+    assert.throws(() => db2.prepare("UPDATE demandes SET statut = 'inconnu'").run(), /CHECK/);
+    assert.equal(db2.prepare('SELECT COUNT(*) AS n FROM depots_drive').get().n, 1);
+    assert.ok(db2.prepare("SELECT 1 FROM sqlite_master WHERE type = 'index' AND name = 'demandes_statut'").get());
+    assert.equal(db2.prepare('PRAGMA foreign_keys').get().foreign_keys, 1);
+    db2.close();
+
+    const db3 = ouvrirBase(fichier); // second démarrage : rien à refaire
+    db3.prepare('DELETE FROM demandes').run();
+    assert.equal(db3.prepare('SELECT COUNT(*) AS n FROM depots_drive').get().n, 0, 'clé étrangère toujours active');
+    db3.close();
+  } finally {
+    rmSync(dossier, { recursive: true, force: true });
+  }
+});
+
 test('écritures refusées depuis une autre origine', async () => {
   const r = await poster('/api/demandes', DEMANDE, { Origin: 'https://malveillant.example' });
   assert.equal(r.status, 403);
@@ -264,6 +304,51 @@ test('le RTPA modifie les véhicules d\'une autorisation signée : nouveau PDF r
 
   const journal = db.prepare("SELECT action FROM journal WHERE reference = ? ORDER BY id").all(reference).map((l) => l.action);
   assert.deepEqual(journal, ['demande.deposee', 'demande.signee', 'demande.modifiee']);
+});
+
+test('le RTPA annule une autorisation signée : e-mail au bénévole, plus valable, fiche conservée', async () => {
+  const { reference } = await (await poster('/api/demandes', DEMANDE)).json();
+  const { cookie } = await seConnecter();
+  const avecSession = { Cookie: cookie };
+  const annuler = (corps) => poster(`/api/gestion/demandes/${reference}/annuler`, corps, avecSession);
+
+  assert.equal((await annuler({ motif: 'Trop tôt' })).status, 409, 'pas d\'annulation tant que rien n\'est signé');
+  await poster(`/api/gestion/demandes/${reference}/signer`, { vehicules: ['VL', 'VPSP'], signature: SIGNATURE }, avecSession);
+  assert.equal((await annuler({ motif: '  ' })).status, 400, 'motif obligatoire');
+  assert.equal((await poster(`/api/gestion/demandes/${reference}/annuler`, { motif: 'x' })).status, 401);
+  assert.equal((await poster(`/api/gestion/demandes/${reference}/annuler`, { motif: 'x' }, { ...avecSession, Origin: 'http://ailleurs.test' })).status, 403);
+
+  envoyes = [];
+  const annulee = await annuler({ motif: 'Permis suspendu' });
+  assert.equal(annulee.status, 200);
+  assert.deepEqual(await annulee.json(), { reference, statut: 'annulee' });
+  assert.equal(envoyes.length, 2);
+  const auBenevole = envoyes.find((m) => m.a === 'camille@example.org');
+  assert.match(auBenevole.sujet, /Annulation/);
+  assert.ok(auBenevole.texte.includes('Permis suspendu') && auBenevole.texte.includes(reference));
+  assert.ok(envoyes.some((m) => m.a === 'boite-rtpa@example.org' && m.texte.includes('Permis suspendu')));
+  assert.ok(envoyes.every((m) => !m.pieceJointe));
+
+  // La fiche garde la signature d'origine et dit qui a annulé, quand et pourquoi.
+  const { demande } = await (await fetch(`${base}/api/gestion/demandes/${reference}`, { headers: avecSession })).json();
+  assert.equal(demande.statut, 'annulee');
+  assert.deepEqual(demande.vehiculesAutorises, ['VL', 'VPSP']);
+  assert.equal(demande.rtpa.nom, 'Dominique TEST');
+  assert.equal(demande.annulation.motif, 'Permis suspendu');
+  assert.equal(demande.annulation.rtpa.nom, 'Dominique TEST');
+  assert.ok(!Number.isNaN(Date.parse(demande.annulation.le)));
+  assert.equal((await fetch(`${base}/api/gestion/demandes/${reference}/pdf`, { headers: avecSession })).status, 200);
+
+  const liste = async (statut) => (await (await fetch(`${base}/api/gestion/demandes?statut=${statut}`, { headers: avecSession })).json())
+    .map((d) => d.reference);
+  assert.deepEqual(await liste('annulee'), [reference]);
+  assert.deepEqual(await liste('signee'), []);
+
+  // Définitive : ni nouvelle annulation, ni modification.
+  assert.equal((await annuler({ motif: 'Encore' })).status, 409);
+  assert.equal((await poster(`/api/gestion/demandes/${reference}/modifier`, { vehicules: ['VL'], signature: SIGNATURE }, avecSession)).status, 409);
+  const journal = db.prepare('SELECT action FROM journal WHERE reference = ? ORDER BY id').all(reference).map((l) => l.action);
+  assert.deepEqual(journal, ['demande.deposee', 'demande.signee', 'demande.annulee']);
 });
 
 test('refus avec motif, e-mail au bénévole', async () => {
@@ -461,7 +546,12 @@ test('interface Stock Secours : seules les autorisations signées, véhicules du
   corps = await (await lireAutorisations()).json();
   assert.deepEqual(corps.autorisations.map((x) => [x.reference, x.vehicules]), [[reference, ['VL', 'REM']], [attente, ['VPSP', 'LOG']]]);
 
+  // Annulation par le RTPA : l'autorisation disparaît, son absence retire l'habilitation.
+  await poster(`/api/gestion/demandes/${reference}/annuler`, { motif: 'Permis suspendu' }, avecSession);
+  corps = await (await lireAutorisations()).json();
+  assert.deepEqual(corps.autorisations.map((x) => x.reference), [attente]);
+
   // Chaque appel est journalisé.
   const { n } = db.prepare("SELECT COUNT(*) AS n FROM journal WHERE action = 'integration.stock_secours' AND acteur = 'stock-secours'").get();
-  assert.equal(n, 3);
+  assert.equal(n, 4);
 });

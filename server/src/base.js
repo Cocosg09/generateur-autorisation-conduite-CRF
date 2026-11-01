@@ -3,13 +3,14 @@ import { DatabaseSync } from 'node:sqlite';
 import { mkdirSync } from 'node:fs';
 import { dirname } from 'node:path';
 
-const SCHEMA = `
-  CREATE TABLE IF NOT EXISTS demandes (
+// À part : la table est recréée sous un autre nom quand sa contrainte de statut change.
+const TABLE_DEMANDES = (nom) => `
+  CREATE TABLE IF NOT EXISTS ${nom} (
     reference      TEXT PRIMARY KEY,
     annee          INTEGER NOT NULL,
     numero         INTEGER NOT NULL,
     cree_le        TEXT NOT NULL,
-    statut         TEXT NOT NULL CHECK (statut IN ('en_attente', 'signee', 'refusee')),
+    statut         TEXT NOT NULL CHECK (statut IN ('en_attente', 'signee', 'refusee', 'annulee')),
     benevole       TEXT NOT NULL,          -- JSON : identité, permis, véhicules demandés, signature
     vehicules      TEXT,                   -- JSON : véhicules autorisés par le RTPA
     rtpa           TEXT,                   -- JSON : { id, nom, email } du signataire
@@ -19,8 +20,12 @@ const SCHEMA = `
     pdf            BLOB,
     prefectorale   BLOB,                   -- autorisation préfectorale jointe à une demande de VPSP
     prefectorale_type TEXT,                -- application/pdf, image/jpeg ou image/png
+    annulation     TEXT,                   -- JSON : { rtpa, le, motif } d'une autorisation signée puis annulée
     UNIQUE (annee, numero)
-  );
+  );`;
+
+const SCHEMA = `
+  ${TABLE_DEMANDES('demandes')}
   CREATE INDEX IF NOT EXISTS demandes_statut ON demandes (statut, cree_le);
 
   CREATE TABLE IF NOT EXISTS sessions (
@@ -70,8 +75,23 @@ export function ouvrirBase(fichier) {
   db.exec(SCHEMA);
   // Colonnes ajoutées après la création des premières bases.
   const colonnes = new Set(db.prepare('PRAGMA table_info(demandes)').all().map((c) => c.name));
-  for (const [nom, type] of [['prefectorale', 'BLOB'], ['prefectorale_type', 'TEXT']]) {
+  for (const [nom, type] of [['prefectorale', 'BLOB'], ['prefectorale_type', 'TEXT'], ['annulation', 'TEXT']]) {
     if (!colonnes.has(nom)) db.exec(`ALTER TABLE demandes ADD COLUMN ${nom} ${type}`);
+  }
+  // Statut « annulee » ajouté après coup : SQLite ne change pas une contrainte CHECK, la table est recréée.
+  // Clés étrangères suspendues, sans quoi les dépôts Drive partiraient avec l'ancienne table.
+  const { sql } = db.prepare("SELECT sql FROM sqlite_master WHERE type = 'table' AND name = 'demandes'").get();
+  if (!sql.includes("'annulee'")) {
+    const noms = db.prepare('PRAGMA table_info(demandes)').all().map((c) => c.name).join(', ');
+    db.exec('PRAGMA foreign_keys = OFF');
+    db.exec(`BEGIN;
+      ${TABLE_DEMANDES('demandes_nouvelle')}
+      INSERT INTO demandes_nouvelle (${noms}) SELECT ${noms} FROM demandes;
+      DROP TABLE demandes;
+      ALTER TABLE demandes_nouvelle RENAME TO demandes;
+      COMMIT;`);
+    db.exec('PRAGMA foreign_keys = ON');
+    db.exec(SCHEMA); // index de la table recréée
   }
   return db;
 }

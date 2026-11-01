@@ -21,8 +21,8 @@ jamais exposé au navigateur.
 ## `GET /autorisations`
 
 Toutes les autorisations **actuellement signées**, les plus récentes en premier. Une demande en attente,
-refusée, supprimée par le RTPA ou purgée au bout de `RETENTION_JOURS` jours (400 par défaut)
-**n'y figure pas** : son absence vaut absence d'habilitation.
+refusée, une autorisation annulée ou supprimée par le RTPA, ou purgée au bout de `RETENTION_JOURS` jours
+(400 par défaut) **n'y figure pas** : son absence vaut absence d'habilitation.
 
 ```json
 {
@@ -61,7 +61,8 @@ refusée, supprimée par le RTPA ou purgée au bout de `RETENTION_JOURS` jours (
 | `rtpa` | Nom du signataire. |
 
 Un même bénévole peut avoir **plusieurs** autorisations signées (par exemple une nouvelle demande l'année
-suivante) : **la plus récente (`signeeLe`) fait foi**.
+suivante) : **la plus récente (`signeeLe`) fait foi**. Si le RTPA annule celle-ci, elle disparaît de la liste
+et la précédente encore signée, s'il y en a une, fait de nouveau foi.
 
 Les données du permis (numéro, date, préfecture) et les signatures ne sont jamais exposées.
 

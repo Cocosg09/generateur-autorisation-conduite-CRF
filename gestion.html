@@ -40,6 +40,7 @@
           <button type="button" role="tab" data-statut="en_attente" aria-selected="true">En attente <span class="compteur" id="compteur-attente"></span></button>
           <button type="button" role="tab" data-statut="signee" aria-selected="false">Signées</button>
           <button type="button" role="tab" data-statut="refusee" aria-selected="false">Refusées</button>
+          <button type="button" role="tab" data-statut="annulee" aria-selected="false">Annulées</button>
           <button type="button" role="tab" data-statut="" aria-selected="false">Toutes</button>
         </div>
         <label class="recherche">Rechercher
@@ -115,10 +116,24 @@
         <div class="actions">
           <a class="bouton secondaire" id="btn-pdf" hidden>Télécharger le PDF signé</a>
           <button type="button" class="lien" id="btn-modifier" hidden>Modifier les véhicules autorisés</button>
+          <button type="button" class="lien danger" id="btn-annuler" hidden>Annuler l'autorisation</button>
           <button type="button" class="secondaire" id="btn-rouvrir" hidden>Rouvrir la demande</button>
           <button type="button" class="lien danger" id="btn-supprimer" hidden>Supprimer la demande</button>
         </div>
       </div>
+
+      <form id="form-annulation" class="carte" novalidate hidden>
+        <h2>Annuler l'autorisation</h2>
+        <p class="aide">L'autorisation ne sera plus valable : le bénévole en est informé par e-mail et elle n'est plus
+          transmise à Stock Secours. Cette action est définitive ; les autres autorisations signées de ce bénévole,
+          s'il en a, restent valables.</p>
+        <label>Motif, transmis au bénévole par e-mail
+          <textarea name="motif" rows="3" maxlength="500" required></textarea></label>
+        <div class="actions">
+          <button type="submit" class="principal">Confirmer l'annulation</button>
+          <button type="button" class="secondaire" id="btn-garder">Garder l'autorisation</button>
+        </div>
+      </form>
     </section>
     <section id="vue-parametres" hidden>
       <a class="lien" href="#/">← Toutes les demandes</a>

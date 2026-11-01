@@ -1,12 +1,12 @@
-// Espace gestion du RTPA : liste des demandes, signature ou refus, modification d'une autorisation
-// signée, réouverture ou suppression d'une demande refusée, paramètres (dont le dépôt sur le Drive).
+// Espace gestion du RTPA : liste des demandes, signature ou refus, modification ou annulation d'une
+// autorisation signée, réouverture ou suppression d'une demande refusée, paramètres (dont le dépôt sur le Drive).
 import { VEHICULES, libelleVehicule, SIG_W, SIG_H } from './pdf.js';
 import { PadSignature } from './signature.js';
 import {
   $, api, afficherVehicules, apercu, ErreurApi, formatDate, montrerErreur, notifier, vehiculesCoches,
 } from './commun.js';
 
-const LIBELLES_STATUT = { en_attente: 'En attente', signee: 'Signée', refusee: 'Refusée' };
+const LIBELLES_STATUT = { en_attente: 'En attente', signee: 'Signée', refusee: 'Refusée', annulee: 'Annulée' };
 const ERREURS_CONNEXION = {
   indisponible: "La connexion par Gestion des DPS n'est pas encore configurée sur ce serveur.",
   etat: 'La connexion a expiré ou a été interrompue. Recommencez.',
@@ -323,8 +323,12 @@ async function ouvrirDemande(reference) {
     lignes.push(['Autorisation préfectorale', 'Non fournie (demande antérieure à son obligation)']);
   }
   if (d.vehiculesAutorises) lignes.push(['Véhicules autorisés', libellesVehicules(d.vehiculesAutorises)]);
-  if (d.rtpa) lignes.push([d.statut === 'signee' ? 'Signée par' : 'Refusée par', `${d.rtpa.nom}, le ${dateHeure(d.traiteLe)}`]);
+  if (d.rtpa) lignes.push([d.statut === 'refusee' ? 'Refusée par' : 'Signée par', `${d.rtpa.nom}, le ${dateHeure(d.traiteLe)}`]);
   if (d.motifRefus) lignes.push(['Motif du refus', d.motifRefus]);
+  if (d.annulation) {
+    lignes.push(['Annulée par', `${d.annulation.rtpa.nom}, le ${dateHeure(d.annulation.le)}`]);
+    lignes.push(["Motif de l'annulation", d.annulation.motif]);
+  }
   const dl = $('#recap');
   dl.innerHTML = '';
   for (const [terme, valeur] of lignes) {
@@ -334,46 +338,58 @@ async function ouvrirDemande(reference) {
     );
   }
   const { drive } = reponse;
-  if (d.statut === 'signee' && (drive.actif || drive.autorisation)) {
+  const signee = d.statut === 'signee';
+  const annulee = d.statut === 'annulee';
+  // Une autorisation annulée n'est plus déposée ; ce qui l'a déjà été reste sur le Drive.
+  const surDrive = annulee && Boolean(drive.autorisation || drive.prefectorale);
+  if ((signee && (drive.actif || drive.autorisation)) || surDrive) {
     const dd = element('dd');
-    dd.append(etatDepot('Autorisation signée', drive.autorisation));
-    if (d.autorisationPrefectorale) dd.append(etatDepot('Autorisation préfectorale', drive.prefectorale));
+    dd.append(etatDepot('Autorisation signée', drive.autorisation, signee));
+    if (d.autorisationPrefectorale) dd.append(etatDepot('Autorisation préfectorale', drive.prefectorale, signee));
     dl.append(element('dt', { textContent: 'Google Drive' }), dd);
   }
   afficherPrefectorale(d);
 
   const enAttente = d.statut === 'en_attente';
   $('#form-refus').hidden = true;
+  $('#form-annulation').hidden = true;
   $('#bloc-traite').hidden = enAttente;
   if (enAttente) {
     preparerSignature(d.vehicules, false);
   } else {
     $('#form-signature').hidden = true;
-    const signee = d.statut === 'signee';
-    $('#texte-traite').textContent = signee
-      ? `Autorisation signée et envoyée par e-mail à ${d.email}.`
-      : `Demande refusée ; le bénévole en a été informé par e-mail. Vous pouvez la rouvrir pour la traiter à nouveau, ou la supprimer définitivement.`;
-    $('#btn-pdf').hidden = !signee;
+    const refusee = d.statut === 'refusee';
+    $('#texte-traite').textContent = {
+      signee: `Autorisation signée et envoyée par e-mail à ${d.email}.`,
+      refusee: 'Demande refusée ; le bénévole en a été informé par e-mail. Vous pouvez la rouvrir pour la traiter à nouveau, ou la supprimer définitivement.',
+      annulee: `Autorisation annulée ; le bénévole en a été informé par e-mail et elle n'est plus transmise à Stock Secours.${
+        surDrive ? ' Les documents déjà déposés sur le Google Drive y restent : supprimez-les si besoin.' : ''}`,
+    }[d.statut];
+    $('#btn-pdf').hidden = refusee;
     $('#btn-pdf').href = `/api/gestion/demandes/${encodeURIComponent(d.reference)}/pdf`;
     $('#btn-modifier').hidden = !signee;
-    $('#btn-rouvrir').hidden = signee;
-    $('#btn-supprimer').hidden = signee;
+    $('#btn-annuler').hidden = !signee;
+    $('#btn-rouvrir').hidden = !refusee;
+    $('#btn-supprimer').hidden = !refusee;
   }
   window.scrollTo({ top: 0 });
 }
 
-/** Une pièce sur le Drive : déposée (lien vers le fichier), ou en attente du prochain passage du script. */
-function etatDepot(libelle, depot) {
+/**
+ * Une pièce sur le Drive : déposée (lien vers le fichier), ou en attente du prochain passage du script.
+ * Hors autorisation en cours (annulée), plus rien n'est attendu.
+ */
+function etatDepot(libelle, depot, enCours) {
   const ligne = element('span', { className: 'depot-drive' });
   if (!depot) {
-    ligne.textContent = `${libelle} : en attente de dépôt par le script`;
+    ligne.textContent = `${libelle} : ${enCours ? 'en attente de dépôt par le script' : 'non déposée'}`;
     return ligne;
   }
   ligne.append(
     `${libelle} : ${depot.aJour ? 'déposée' : 'version précédente déposée'} le ${dateHeure(depot.deposeLe)} · `,
     element('a', { className: 'lien', href: depot.lien, target: '_blank', rel: 'noopener', textContent: 'Ouvrir sur le Drive' }),
   );
-  if (!depot.aJour) ligne.append(' · nouvelle version en attente de dépôt');
+  if (!depot.aJour && enCours) ligne.append(' · nouvelle version en attente de dépôt');
   return ligne;
 }
 
@@ -420,6 +436,7 @@ $('#btn-modifier').addEventListener('click', () => {
   const d = courante.demande;
   preparerSignature(d.vehiculesAutorises ?? d.vehicules, true);
   $('#bloc-traite').hidden = true;
+  $('#form-annulation').hidden = true;
   $('#form-signature').scrollIntoView({ behavior: 'smooth' });
 });
 $('#btn-annuler-modification').addEventListener('click', () => {
@@ -484,6 +501,35 @@ $('#form-refus').addEventListener('submit', async (ev) => {
     await ouvrirDemande(reference);
   } catch (e) {
     gererErreur(e);
+  }
+});
+
+$('#btn-annuler').addEventListener('click', () => {
+  $('#form-annulation').hidden = false;
+  $('#form-annulation').scrollIntoView({ behavior: 'smooth' });
+  $('#form-annulation').elements.motif.focus();
+});
+$('#btn-garder').addEventListener('click', () => { $('#form-annulation').hidden = true; });
+
+$('#form-annulation').addEventListener('submit', async (ev) => {
+  ev.preventDefault();
+  const form = ev.target;
+  if (!form.checkValidity()) return form.classList.add('verifie');
+  const reference = courante.demande.reference;
+  const bouton = ev.submitter;
+  bouton.disabled = true;
+  try {
+    await api(`/api/gestion/demandes/${encodeURIComponent(reference)}/annuler`, {
+      methode: 'POST', corps: { motif: form.elements.motif.value },
+    });
+    form.reset();
+    form.classList.remove('verifie');
+    notifier(`Autorisation ${reference} annulée ; le bénévole en est informé.`);
+    await ouvrirDemande(reference);
+  } catch (e) {
+    gererErreur(e);
+  } finally {
+    bouton.disabled = false;
   }
 });
 

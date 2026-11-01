@@ -6,7 +6,7 @@
       "runtimeExecutable": "bash",
       "runtimeArgs": [
         "-c",
-        "URL_PUBLIQUE=http://localhost:8080 FICHIER_BASE=/tmp/autorisation-conduite-dev.sqlite GESTIONNAIRES=rtpa@example.org GESTION_DPS_URL=http://127.0.0.1:8790/integrations/autorisation-conduite GESTION_DPS_TOKEN=jeton-local GESTION_DPS_URL_INTERFACE=http://127.0.0.1:8790 node server/src/index.js"
+        "URL_PUBLIQUE=http://localhost:${PORT:-8080} FICHIER_BASE=/tmp/autorisation-conduite-dev.sqlite GESTIONNAIRES=rtpa@example.org GESTION_DPS_URL=http://127.0.0.1:8790/integrations/autorisation-conduite GESTION_DPS_TOKEN=jeton-local GESTION_DPS_URL_INTERFACE=http://127.0.0.1:8790 node server/src/index.js"
       ],
       "port": 8080
     }
