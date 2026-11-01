@@ -64,6 +64,16 @@ export function creerApp({ db, config, messagerie, genererPdf, fetch }) {
     if (req.get('origin') !== config.urlPublique) return res.status(403).json({ erreur: 'Origine refusée' });
     suivant();
   });
+
+  // Le dépôt peut porter l'autorisation préfectorale du VPSP (5 Mo, en base64) : corps lu après le limiteur.
+  app.post('/api/demandes', limiteur(10, 3600_000), express.json({ limit: '8mb' }), async (req, res, suivant) => {
+    try {
+      res.status(201).json(await demandes.deposer(req.body));
+    } catch (e) {
+      suivant(e);
+    }
+  });
+
   app.use('/api', express.json({ limit: '200kb' }));
 
   app.get('/healthz', (req, res) => res.type('text').send('ok'));
@@ -74,14 +84,6 @@ export function creerApp({ db, config, messagerie, genererPdf, fetch }) {
       structure: config.structure.structure,
       annee: new Date().getFullYear(),
     });
-  });
-
-  app.post('/api/demandes', limiteur(10, 3600_000), async (req, res, suivant) => {
-    try {
-      res.status(201).json(await demandes.deposer(req.body));
-    } catch (e) {
-      suivant(e);
-    }
   });
 
   // --- Connexion ---
@@ -117,6 +119,21 @@ export function creerApp({ db, config, messagerie, genererPdf, fetch }) {
   gestion.get('/demandes/:reference/pdf', (req, res) => {
     const { contenu, nom } = demandes.pdfSigne(req.params.reference);
     res.type('application/pdf').attachment(nom).send(Buffer.from(contenu));
+  });
+  // Fichier déposé par le public, de type reconnu à son contenu (PDF, JPEG, PNG) et servi en nosniff.
+  // Avec ?affichage=1, il s'affiche dans la fiche de la demande (seul cadre permis : l'espace gestion).
+  gestion.get('/demandes/:reference/autorisation-prefectorale', (req, res) => {
+    const { contenu, type, nom } = demandes.autorisationPrefectorale(req.params.reference);
+    res.type(type);
+    if (req.query.affichage === '1') {
+      res.set({
+        'Content-Security-Policy': "default-src 'none'; object-src 'self'; frame-ancestors 'self'",
+        'Content-Disposition': `inline; filename="${nom}"`,
+      });
+    } else {
+      res.attachment(nom);
+    }
+    res.send(Buffer.from(contenu));
   });
   gestion.post('/demandes/:reference/signer', async (req, res, suivant) => {
     try {

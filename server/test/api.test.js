@@ -1,6 +1,10 @@
 import { test, beforeEach, afterEach } from 'node:test';
 import assert from 'node:assert/strict';
 import { fileURLToPath } from 'node:url';
+import { mkdtempSync, rmSync } from 'node:fs';
+import { tmpdir } from 'node:os';
+import { join } from 'node:path';
+import { DatabaseSync } from 'node:sqlite';
 import { ouvrirBase } from '../src/base.js';
 import { lireConfig } from '../src/config.js';
 import { creerApp } from '../src/app.js';
@@ -9,6 +13,7 @@ import { creerGenerateurPdf } from '../src/pdf-serveur.js';
 const racine = fileURLToPath(new URL('../../', import.meta.url));
 const genererPdf = creerGenerateurPdf(racine);
 const SIGNATURE = [[[20, 150], [60, 60], [100, 140]], [[50, 120]]];
+const PREFECTORALE = Buffer.from('%PDF-1.4\n% autorisation préfectorale de test\n%%EOF\n');
 const DEMANDE = {
   prenom: 'Camille',
   nom: 'Exemple',
@@ -18,6 +23,7 @@ const DEMANDE = {
   permisPrefecture: 'Foix',
   vehicules: ['VPSP', 'VL'],
   signatureConducteur: SIGNATURE,
+  autorisationPrefectorale: { contenu: PREFECTORALE.toString('base64') },
 };
 const RTPA = { id: 'u-1', nom: 'TEST', prenom: 'Dominique', email: 'rtpa@example.org' };
 
@@ -94,6 +100,84 @@ test('dépôt : données invalides refusées', async () => {
   ]) {
     const r = await poster('/api/demandes', { ...DEMANDE, ...modif });
     assert.equal(r.status, 400, JSON.stringify(modif));
+  }
+});
+
+test('VPSP : autorisation préfectorale obligatoire, contrôlée, téléchargeable par le RTPA', async () => {
+  const pieces = [
+    [undefined, /obligatoire pour le VPSP/],
+    [{ contenu: '' }, /obligatoire pour le VPSP/],
+    [{ contenu: 'pas du base64 !' }, /invalide/],
+    [{ contenu: Buffer.from('<svg xmlns="http://www.w3.org/2000/svg"/>').toString('base64') }, /PDF, JPEG ou PNG/],
+    [{ contenu: Buffer.alloc(5 * 1024 * 1024 + 1, '%PDF-').toString('base64') }, /trop volumineuse/],
+  ];
+  for (const [piece, message] of pieces) {
+    const r = await poster('/api/demandes', { ...DEMANDE, autorisationPrefectorale: piece });
+    assert.equal(r.status, 400, JSON.stringify(piece)?.slice(0, 40));
+    assert.match((await r.json()).erreur, message);
+  }
+
+  envoyes = [];
+  const { reference } = await (await poster('/api/demandes', DEMANDE)).json();
+  // Le fichier reste dans l'espace gestion : aucun e-mail ne le transporte.
+  assert.ok(envoyes.length > 0 && envoyes.every((m) => !m.pieceJointe));
+  // Sans VPSP, un fichier envoyé quand même n'est pas conservé.
+  const { reference: sansVpsp } = await (await poster('/api/demandes', { ...DEMANDE, vehicules: ['VL'] })).json();
+  // Le type vient du contenu, pas de ce qu'annonce le navigateur.
+  const jpeg = Buffer.from([0xff, 0xd8, 0xff, 0xe0, 0x00, 0x10, 0x4a, 0x46, 0x49, 0x46]);
+  const { reference: photo } = await (await poster('/api/demandes', {
+    ...DEMANDE, autorisationPrefectorale: { contenu: jpeg.toString('base64'), type: 'application/pdf' },
+  })).json();
+
+  const chemin = (ref) => `${base}/api/gestion/demandes/${ref}/autorisation-prefectorale`;
+  assert.equal((await fetch(chemin(reference))).status, 401);
+  const { cookie } = await seConnecter();
+  const avecSession = { Cookie: cookie };
+
+  const detail = await (await fetch(`${base}/api/gestion/demandes/${reference}`, { headers: avecSession })).json();
+  assert.deepEqual(detail.demande.autorisationPrefectorale, { type: 'application/pdf', taille: PREFECTORALE.length });
+  const liste = await (await fetch(`${base}/api/gestion/demandes`, { headers: avecSession })).json();
+  assert.doesNotMatch(JSON.stringify([detail, liste]), new RegExp(PREFECTORALE.toString('base64').slice(0, 20)));
+
+  const r = await fetch(chemin(reference), { headers: avecSession });
+  assert.equal(r.status, 200);
+  assert.equal(r.headers.get('content-type'), 'application/pdf');
+  assert.equal(r.headers.get('content-disposition'), `attachment; filename=Autorisation_prefectorale_${reference}_EXEMPLE_Camille.pdf`);
+  assert.deepEqual(Buffer.from(await r.arrayBuffer()), PREFECTORALE);
+  // Affichage dans la fiche : en ligne, encadrable par l'espace gestion seulement, jamais interprété autrement.
+  const affiche = await fetch(`${chemin(reference)}?affichage=1`, { headers: avecSession });
+  assert.match(affiche.headers.get('content-disposition'), /^inline;/);
+  assert.match(affiche.headers.get('content-security-policy'), /default-src 'none'.*frame-ancestors 'self'/);
+  assert.equal(affiche.headers.get('x-content-type-options'), 'nosniff');
+  assert.equal((await fetch(`${chemin(reference)}?affichage=1`)).status, 401);
+
+  const image = await fetch(chemin(photo), { headers: avecSession });
+  assert.equal(image.headers.get('content-type'), 'image/jpeg');
+  assert.match(image.headers.get('content-disposition'), /\.jpg$/);
+
+  const autre = await (await fetch(`${base}/api/gestion/demandes/${sansVpsp}`, { headers: avecSession })).json();
+  assert.equal(autre.demande.autorisationPrefectorale, null);
+  assert.equal((await fetch(chemin(sansVpsp), { headers: avecSession })).status, 404);
+});
+
+test('base existante : colonnes de l\'autorisation préfectorale ajoutées au démarrage', () => {
+  const dossier = mkdtempSync(join(tmpdir(), 'autorisation-conduite-'));
+  try {
+    const fichier = join(dossier, 'ancienne.sqlite');
+    const ancienne = new DatabaseSync(fichier);
+    ancienne.exec(`CREATE TABLE demandes (reference TEXT PRIMARY KEY, annee INTEGER NOT NULL, numero INTEGER NOT NULL,
+      cree_le TEXT NOT NULL, statut TEXT NOT NULL, benevole TEXT NOT NULL, vehicules TEXT, rtpa TEXT,
+      signature_rtpa TEXT, motif_refus TEXT, traite_le TEXT, pdf BLOB, UNIQUE (annee, numero))`);
+    ancienne.prepare("INSERT INTO demandes VALUES ('AC-2026-0001', 2026, 1, '2026-01-01', 'en_attente', '{}', NULL, NULL, NULL, NULL, NULL, NULL)").run();
+    ancienne.close();
+    const db2 = ouvrirBase(fichier);
+    const colonnes = db2.prepare('PRAGMA table_info(demandes)').all().map((c) => c.name);
+    assert.ok(colonnes.includes('prefectorale') && colonnes.includes('prefectorale_type'));
+    assert.equal(db2.prepare('SELECT prefectorale_type FROM demandes').get().prefectorale_type, null);
+    db2.close();
+    ouvrirBase(fichier).close(); // second démarrage : rien à ajouter
+  } finally {
+    rmSync(dossier, { recursive: true, force: true });
   }
 });
 

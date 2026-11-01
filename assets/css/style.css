@@ -108,6 +108,17 @@ input:focus-visible, button:focus-visible, .bouton:focus-visible, summary:focus-
   font-weight: 600;
   color: var(--rouge-fonce);
 }
+.piece { margin: 0 0 4px 28px; }
+.piece label { margin-top: 8px; }
+.visionneuse iframe, .visionneuse img {
+  display: block;
+  width: 100%;
+  border: 1px solid var(--bordure);
+  border-radius: 8px;
+  background: #fff;
+}
+.visionneuse iframe { height: 75vh; min-height: 420px; }
+.visionneuse img { height: auto; }
 
 .charte summary { cursor: pointer; color: var(--rouge-fonce); font-weight: 600; }
 .charte ul { margin: 10px 0 0; padding-left: 20px; font-size: .92rem; }

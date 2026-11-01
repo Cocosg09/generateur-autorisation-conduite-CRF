@@ -20,6 +20,10 @@ const libellesVehicules = (codes) =>
   VEHICULES.filter((v) => codes.includes(v.code)).map((v) => v.code).join(', ');
 const dateHeure = (iso) =>
   new Date(iso).toLocaleString('fr-FR', { dateStyle: 'short', timeStyle: 'short' });
+const FORMATS = { 'application/pdf': 'PDF', 'image/jpeg': 'JPEG', 'image/png': 'PNG' };
+const taille = (octets) => (octets < 1024 * 1024
+  ? `${Math.max(1, Math.round(octets / 1024))} Ko`
+  : `${(octets / 1024 / 1024).toLocaleString('fr-FR', { maximumFractionDigits: 1 })} Mo`);
 
 let compte;
 let statutCourant = 'en_attente';
@@ -232,6 +236,12 @@ async function ouvrirDemande(reference) {
     ['Préfecture', d.permisPrefecture],
     ['Véhicules demandés', VEHICULES.filter((v) => d.vehicules.includes(v.code)).map(libelleVehicule).join(', ')],
   ];
+  const piece = d.autorisationPrefectorale;
+  if (piece) {
+    lignes.push(['Autorisation préfectorale', `Jointe (${FORMATS[piece.type]}, ${taille(piece.taille)}), affichée ci-dessous`]);
+  } else if (d.vehicules.includes('VPSP')) {
+    lignes.push(['Autorisation préfectorale', 'Non fournie (demande antérieure à son obligation)']);
+  }
   if (d.vehiculesAutorises) lignes.push(['Véhicules autorisés', libellesVehicules(d.vehiculesAutorises)]);
   if (d.rtpa) lignes.push([d.statut === 'signee' ? 'Signée par' : 'Refusée par', `${d.rtpa.nom}, le ${dateHeure(d.traiteLe)}`]);
   if (d.motifRefus) lignes.push(['Motif du refus', d.motifRefus]);
@@ -243,6 +253,7 @@ async function ouvrirDemande(reference) {
       Object.assign(document.createElement('dd'), { textContent: valeur }),
     );
   }
+  afficherPrefectorale(d);
 
   const enAttente = d.statut === 'en_attente';
   $('#form-refus').hidden = true;
@@ -262,6 +273,22 @@ async function ouvrirDemande(reference) {
     $('#btn-supprimer').hidden = signee;
   }
   window.scrollTo({ top: 0 });
+}
+
+/** Autorisation préfectorale jointe à une demande de VPSP, affichée pour que le RTPA la vérifie. */
+function afficherPrefectorale(d) {
+  const piece = d.autorisationPrefectorale;
+  const visionneuse = $('#visionneuse-prefectorale');
+  visionneuse.innerHTML = '';
+  $('#bloc-prefectorale').hidden = !piece;
+  if (!piece) return;
+  const url = `/api/gestion/demandes/${encodeURIComponent(d.reference)}/autorisation-prefectorale`;
+  $('#telecharger-prefectorale').href = url;
+  $('#ouvrir-prefectorale').href = `${url}?affichage=1`;
+  const titre = `Autorisation préfectorale de ${d.prenom} ${d.nom}`;
+  visionneuse.append(piece.type === 'application/pdf'
+    ? element('iframe', { src: `${url}?affichage=1`, title: titre })
+    : element('img', { src: `${url}?affichage=1`, alt: titre }));
 }
 
 /**

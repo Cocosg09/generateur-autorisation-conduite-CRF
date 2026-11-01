@@ -17,6 +17,8 @@ const SCHEMA = `
     motif_refus    TEXT,
     traite_le      TEXT,
     pdf            BLOB,
+    prefectorale   BLOB,                   -- autorisation préfectorale jointe à une demande de VPSP
+    prefectorale_type TEXT,                -- application/pdf, image/jpeg ou image/png
     UNIQUE (annee, numero)
   );
   CREATE INDEX IF NOT EXISTS demandes_statut ON demandes (statut, cree_le);
@@ -56,6 +58,11 @@ export function ouvrirBase(fichier) {
   const db = new DatabaseSync(fichier);
   db.exec('PRAGMA journal_mode = WAL; PRAGMA foreign_keys = ON;');
   db.exec(SCHEMA);
+  // Colonnes ajoutées après la création des premières bases.
+  const colonnes = new Set(db.prepare('PRAGMA table_info(demandes)').all().map((c) => c.name));
+  for (const [nom, type] of [['prefectorale', 'BLOB'], ['prefectorale_type', 'TEXT']]) {
+    if (!colonnes.has(nom)) db.exec(`ALTER TABLE demandes ADD COLUMN ${nom} ${type}`);
+  }
   return db;
 }
 

@@ -13,6 +13,17 @@ const EMAIL = /^[^\s@<>"',;]+@[^\s@<>"',;]+\.[^\s@<>"',;]+$/;
 const DATE = /^\d{4}-\d{2}-\d{2}$/;
 const MAX_TRAITS = 60;
 const MAX_POINTS = 4000;
+// Autorisation préfectorale (VPSP) : type reconnu à ses premiers octets, jamais à ce qu'annonce le navigateur.
+const MAX_PREFECTORALE = 5 * 1024 * 1024;
+const BASE64 = /^[A-Za-z0-9+/]+={0,2}$/;
+const FORMATS_PREFECTORALE = [
+  { type: 'application/pdf', extension: 'pdf', debut: Buffer.from('%PDF-') },
+  { type: 'image/jpeg', extension: 'jpg', debut: Buffer.from([0xff, 0xd8, 0xff]) },
+  { type: 'image/png', extension: 'png', debut: Buffer.from([0x89, 0x50, 0x4e, 0x47, 0x0d, 0x0a, 0x1a, 0x0a]) },
+];
+// Toutes les colonnes sauf les fichiers (PDF signé, autorisation préfectorale), lus à part.
+const COLONNES = `reference, annee, cree_le, statut, benevole, vehicules, rtpa, signature_rtpa, motif_refus, traite_le,
+  prefectorale_type, length(prefectorale) AS prefectorale_taille`;
 
 function chaine(valeur, nom, max) {
   if (typeof valeur !== 'string' || !valeur.trim()) throw new ErreurValidation(`Champ « ${nom} » manquant`);
@@ -50,6 +61,22 @@ function signature(valeur) {
   return valeur;
 }
 
+/** Fichier envoyé en base64 avec la demande de VPSP : PDF, JPEG ou PNG de 5 Mo au plus. */
+function prefectorale(valeur) {
+  const contenu = valeur?.contenu;
+  if (typeof contenu !== 'string' || !contenu) {
+    throw new ErreurValidation("L'autorisation préfectorale est obligatoire pour le VPSP");
+  }
+  const tropGrosse = () => new ErreurValidation('Autorisation préfectorale trop volumineuse (5 Mo au plus)');
+  if (contenu.length > Math.ceil(MAX_PREFECTORALE / 3) * 4) throw tropGrosse();
+  if (contenu.length % 4 !== 0 || !BASE64.test(contenu)) throw new ErreurValidation('Autorisation préfectorale invalide');
+  const octets = Buffer.from(contenu, 'base64');
+  if (octets.length > MAX_PREFECTORALE) throw tropGrosse();
+  const format = FORMATS_PREFECTORALE.find((f) => octets.subarray(0, f.debut.length).equals(f.debut));
+  if (!format) throw new ErreurValidation('Autorisation préfectorale : seuls les fichiers PDF, JPEG ou PNG sont acceptés');
+  return { contenu: octets, type: format.type };
+}
+
 export function validerDemande(corps) {
   if (!corps || typeof corps !== 'object') throw new ErreurValidation('Demande invalide');
   const email = chaine(corps.email, 'e-mail', 120).toLowerCase();
@@ -83,11 +110,14 @@ const lire = (ligne) =>
     signatureRtpa: ligne.signature_rtpa ? JSON.parse(ligne.signature_rtpa) : null,
     motifRefus: ligne.motif_refus,
     traiteLe: ligne.traite_le,
+    autorisationPrefectorale: ligne.prefectorale_type
+      ? { type: ligne.prefectorale_type, taille: ligne.prefectorale_taille }
+      : null,
   };
 
-const nomFichier = (d) => {
+const nomFichier = (d, prefixe = 'Autorisation_conduite', extension = 'pdf') => {
   const propre = (s) => s.normalize('NFD').replace(/[̀-ͯ]/g, '').replace(/[^A-Za-z0-9-]+/g, '_');
-  return `Autorisation_conduite_${d.reference}_${propre(d.nom.toUpperCase())}_${propre(d.prenom)}.pdf`;
+  return `${prefixe}_${d.reference}_${propre(d.nom.toUpperCase())}_${propre(d.prenom)}.${extension}`;
 };
 
 export function creerServiceDemandes({ db, config, parametres, messagerie, genererPdf, maintenant = () => new Date() }) {
@@ -102,6 +132,7 @@ export function creerServiceDemandes({ db, config, parametres, messagerie, gener
   const service = {
     async deposer(corps, origine = 'bénévole') {
       const benevole = validerDemande(corps);
+      const piece = benevole.vehicules.includes('VPSP') ? prefectorale(corps.autorisationPrefectorale) : null;
       const date = maintenant();
       const annee = date.getFullYear();
       const { suivant } = db
@@ -109,9 +140,9 @@ export function creerServiceDemandes({ db, config, parametres, messagerie, gener
         .get(annee);
       const reference = `AC-${annee}-${String(suivant).padStart(4, '0')}`;
       db.prepare(
-        `INSERT INTO demandes (reference, annee, numero, cree_le, statut, benevole)
-         VALUES (?, ?, ?, ?, 'en_attente', ?)`,
-      ).run(reference, annee, suivant, date.toISOString(), JSON.stringify(benevole));
+        `INSERT INTO demandes (reference, annee, numero, cree_le, statut, benevole, prefectorale, prefectorale_type)
+         VALUES (?, ?, ?, ?, 'en_attente', ?, ?, ?)`,
+      ).run(reference, annee, suivant, date.toISOString(), JSON.stringify(benevole), piece?.contenu ?? null, piece?.type ?? null);
       journaliser(db, `${origine} ${benevole.email}`, 'demande.deposee', reference);
 
       const nomComplet = `${benevole.prenom} ${benevole.nom}`;
@@ -153,8 +184,8 @@ export function creerServiceDemandes({ db, config, parametres, messagerie, gener
 
     lister(statut) {
       const lignes = statut
-        ? db.prepare('SELECT * FROM demandes WHERE statut = ? ORDER BY cree_le DESC').all(statut)
-        : db.prepare('SELECT * FROM demandes ORDER BY cree_le DESC').all();
+        ? db.prepare(`SELECT ${COLONNES} FROM demandes WHERE statut = ? ORDER BY cree_le DESC`).all(statut)
+        : db.prepare(`SELECT ${COLONNES} FROM demandes ORDER BY cree_le DESC`).all();
       return lignes.map((l) => {
         const d = lire(l);
         return {
@@ -170,7 +201,7 @@ export function creerServiceDemandes({ db, config, parametres, messagerie, gener
      */
     autorisationsSignees() {
       return db
-        .prepare("SELECT * FROM demandes WHERE statut = 'signee' ORDER BY traite_le DESC, reference DESC")
+        .prepare(`SELECT ${COLONNES} FROM demandes WHERE statut = 'signee' ORDER BY traite_le DESC, reference DESC`)
         .all()
         .map((l) => {
           const d = lire(l);
@@ -188,7 +219,7 @@ export function creerServiceDemandes({ db, config, parametres, messagerie, gener
     },
 
     obtenir(reference) {
-      const d = lire(db.prepare('SELECT * FROM demandes WHERE reference = ?').get(reference));
+      const d = lire(db.prepare(`SELECT ${COLONNES} FROM demandes WHERE reference = ?`).get(reference));
       if (!d) throw new DemandeIntrouvable(reference);
       return d;
     },
@@ -197,6 +228,20 @@ export function creerServiceDemandes({ db, config, parametres, messagerie, gener
       const ligne = db.prepare('SELECT pdf, benevole FROM demandes WHERE reference = ?').get(reference);
       if (!ligne?.pdf) throw new DemandeIntrouvable(reference);
       return { contenu: ligne.pdf, nom: nomFichier({ reference, ...JSON.parse(ligne.benevole) }) };
+    },
+
+    /** Autorisation préfectorale jointe par le bénévole à sa demande de VPSP. */
+    autorisationPrefectorale(reference) {
+      const ligne = db
+        .prepare('SELECT prefectorale, prefectorale_type, benevole FROM demandes WHERE reference = ?')
+        .get(reference);
+      if (!ligne?.prefectorale) throw new DemandeIntrouvable(reference);
+      const { extension } = FORMATS_PREFECTORALE.find((f) => f.type === ligne.prefectorale_type);
+      return {
+        contenu: ligne.prefectorale,
+        type: ligne.prefectorale_type,
+        nom: nomFichier({ reference, ...JSON.parse(ligne.benevole) }, 'Autorisation_prefectorale', extension),
+      };
     },
 
     /**

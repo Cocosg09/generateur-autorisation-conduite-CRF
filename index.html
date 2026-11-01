@@ -51,6 +51,12 @@
         <fieldset>
           <legend>Véhicules demandés</legend>
           <div class="vehicules" id="vehicules-benevole"></div>
+          <div class="piece" id="bloc-prefectorale" hidden>
+            <label>Votre autorisation préfectorale
+              <span class="aide">obligatoire pour le VPSP : PDF, ou photo lisible (JPEG, PNG), 5 Mo au plus</span>
+              <input type="file" name="prefectorale" id="prefectorale" accept="application/pdf,image/jpeg,image/png" required disabled></label>
+            <p class="erreur" id="erreur-prefectorale" hidden></p>
+          </div>
           <p class="erreur" id="erreur-vehicules" hidden>Sélectionnez au moins un type de véhicule.</p>
         </fieldset>
 
@@ -97,8 +103,8 @@
 
   <footer>
     Croix-Rouge française – Délégation territoriale de l'Ariège.
-    Vos informations sont transmises au seul RTPA pour établir votre autorisation de conduite,
-    puis supprimées au bout de 13 mois.
+    Vos informations (et votre autorisation préfectorale pour le VPSP) sont transmises au seul RTPA pour établir
+    votre autorisation de conduite, puis supprimées au bout de 13 mois.
   </footer>
 
   <div id="toast" role="status" hidden></div>

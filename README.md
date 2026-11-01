@@ -11,11 +11,15 @@ Les bénévoles remplissent et signent en ligne leur **Charte du conducteur / Au
 
 1. **Le bénévole** saisit son identité, son e-mail et son permis, choisit les véhicules (VL, VPSP
    *« sous couvert d'autorisation préalable du RTPA »*, VLTT, VLTC, LOG, Remorque, Quad), accepte la
-   charte et signe à l'écran. Il reçoit une **référence** (`AC-2026-0001`) et peut télécharger son exemplaire.
+   charte et signe à l'écran. Pour le **VPSP**, il doit joindre son **autorisation préfectorale** (PDF, JPEG
+   ou PNG, 5 Mo au plus), sans quoi la demande est refusée. Il reçoit une **référence** (`AC-2026-0001`) et
+   peut télécharger son exemplaire.
 2. **Un e-mail automatique** part vers la boîte du RTPA (`RTPA_EMAIL`) avec la seule référence :
    aucun lien, la messagerie de la Croix-Rouge les bloque. Le bénévole reçoit un accusé de réception.
-3. **Le RTPA** se connecte à l'espace gestion avec son compte Gestion des DPS, ouvre la demande, ajuste
-   la sélection de véhicules (cocher ou décocher), signe ou refuse (avec un motif).
+3. **Le RTPA** se connecte à l'espace gestion avec son compte Gestion des DPS, ouvre la demande, vérifie
+   l'autorisation préfectorale affichée dans la fiche (demande de VPSP), ajuste la sélection de véhicules
+   (cocher ou décocher), signe ou refuse (avec un motif). L'autorisation préfectorale n'est jamais envoyée
+   par e-mail : elle reste dans l'espace gestion.
 4. **À la signature**, le serveur génère le PDF et l'envoie en pièce jointe au bénévole, avec une copie
    dans la boîte du RTPA. Le nom du RTPA inscrit sur le document est celui de son compte Gestion des DPS.
 5. **Sur une autorisation déjà signée**, le RTPA peut **modifier les véhicules autorisés** : il signe une
@@ -35,7 +39,7 @@ Les bénévoles remplissent et signent en ligne leur **Charte du conducteur / Au
 - La boîte qui reçoit les avis de nouvelles demandes se change aussi depuis **Paramètres**.
 - Connexion selon le contrat `CONTRAT_API_AUTORISATION_CONDUITE.md` du dépôt gestion-dps-ariege :
   code à usage unique échangé de serveur à serveur, aucun mot de passe ne transite par ce site.
-- Les demandes (identité, permis, signatures, PDF) sont gardées `RETENTION_JOURS` jours (400 par défaut,
+- Les demandes (identité, permis, signatures, autorisation préfectorale, PDF) sont gardées `RETENTION_JOURS` jours (400 par défaut,
   environ 13 mois), puis supprimées automatiquement. Chaque action est inscrite dans un journal en ajout seul.
 
 ### Lien avec Stock Secours
@@ -58,7 +62,8 @@ Stock Secours retire alors l'habilitation. Contrat : [`CONTRAT_API_STOCK_SECOURS
 | `infra/` | Image et déploiement sur le VPS |
 | `tests/`, `server/test/` | Tests (génération du PDF, API) |
 
-Principales routes : `POST /api/demandes` (public, limité à 10 dépôts par heure et par adresse),
+Principales routes : `POST /api/demandes` (public, limité à 10 dépôts par heure et par adresse, 8 Mo au plus
+avec l'autorisation préfectorale),
 `/api/auth/*` (connexion), `/api/gestion/*` (session du RTPA requise),
 `/api/integrations/stock-secours/*` (lecture par Stock Secours, jeton de service).
 
